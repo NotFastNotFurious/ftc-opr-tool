@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FTC Event Strength of Schedule</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 1080px; margin: 40px auto; padding: 0 20px; color: #222; }
+  h1 { font-size: 22px; font-weight: 600; }
+  .sub { color: #666; font-size: 14px; margin-bottom: 24px; }
+  .row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+  label { display: block; font-size: 13px; color: #444; margin-bottom: 4px; }
+  input[type=text], input[type=number] { padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; width: 140px; }
+  input[type=text]#eventCode { width: 140px; text-transform: uppercase; }
+  button { padding: 9px 16px; border-radius: 6px; border: 1px solid #333; background: #222; color: #fff; font-size: 14px; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.secondary { background: #fff; color: #222; }
+  .opts { font-size: 13px; color: #444; margin: 8px 0 12px; display: flex; gap: 20px; flex-wrap: wrap; }
+  .opts label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; }
+  .opts2 { font-size: 13px; color: #444; margin: 0 0 20px; display: flex; gap: 20px; flex-wrap: wrap; align-items: center; padding: 10px 12px; background: #fafafa; border: 1px solid #eee; border-radius: 6px; }
+  .opts2 label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; }
+  .opts2 .grp { display: flex; gap: 12px; align-items: center; }
+  .opts2 .grp-label { font-size: 12px; color: #888; margin-right: 2px; }
+  #log { font-family: ui-monospace, monospace; font-size: 12px; background: #f6f6f6; border-radius: 6px; padding: 10px 12px; min-height: 24px; white-space: pre-wrap; color: #555; margin-bottom: 20px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #eee; }
+  th { color: #666; font-weight: 500; }
+  td.num, th.num { text-align: right; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { color: #222; }
+  th.sortable .arrow { display: inline-block; width: 12px; color: #999; }
+  th.sortable.active .arrow { color: #222; }
+  #downloadRow { margin-top: 16px; display: none; }
+  .note { font-size: 12px; color: #888; margin-top: 4px; }
+  .caption { font-size: 12px; color: #888; margin: 24px 0 12px; padding-top: 12px; border-top: 1px solid #eee; }
+  #eventName { font-size: 28px; font-weight: 700; margin: 16px 0 10px; padding-bottom: 8px; border-bottom: 2px solid #222; display: none; }
+  .teamCell { cursor: pointer; }
+  .teamCell:hover { text-decoration: underline; color: #06c; }
+  .expandArrow { display: inline-block; width: 12px; color: #999; }
+  tr.detailRow td { padding: 10px 10px 16px 28px; background: #fafafa; border-bottom: 1px solid #ddd; }
+  table.detailTable { width: auto; min-width: 60%; font-size: 12px; }
+  table.detailTable th, table.detailTable td { padding: 4px 10px; border-bottom: 1px solid #eee; }
+  table.detailTable th { color: #888; font-weight: 500; }
+  .resultBadge { display: inline-block; min-width: 16px; text-align: center; font-weight: 600; }
+  .resultBadge.W { color: #1a7f37; }
+  .resultBadge.L { color: #c0392b; }
+  .resultBadge.T { color: #888; }
+  .spinner { display: none; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: #222; border-radius: 50%; margin-left: 10px; vertical-align: middle; animation: spin 0.7s linear infinite; }
+  .spinner.active { display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<h1>FTC Event Strength of Schedule</h1>
+<div class="sub">Enter a season and event code (e.g. season 2025, code USGACMP). Pulls live match data from ftcscout.org and computes OPR for this event, alongside ftcscout's own published numbers, plus each team's strength of schedule.</div>
+
+<div class="row">
+  <div>
+    <label for="season">Season</label>
+    <input type="number" id="season" value="2025">
+  </div>
+  <div>
+    <label for="eventCode">Event code</label>
+    <input type="text" id="eventCode" placeholder="USGACMP" value="USGACMP">
+  </div>
+  <button id="runBtn">Fetch and compute</button>
+  <span id="spinner" class="spinner"></span>
+</div>
+
+<div class="opts">
+  <label><input type="checkbox" id="excludeSurrogate" checked> Exclude surrogate matches</label>
+</div>
+
+<div class="opts2" id="displayOpts" style="display:none">
+  <label><input type="checkbox" id="showFtcscoutCol"> Show ftcscout</label>
+  <div class="grp">
+    <span class="grp-label">Strength Calc OPRs:</span>
+    <label><input type="radio" name="strengthMode" id="strengthPrior" value="prior" checked> Pre-event</label>
+    <label><input type="radio" name="strengthMode" id="strengthEvent" value="event"> Event</label>
+    <label><input type="radio" name="strengthMode" id="strengthCurrent" value="current"> End-of-Season</label>
+  </div>
+</div>
+
+<div id="log"></div>
+
+<h2 id="eventName"></h2>
+
+<table id="resultsTable" style="display:none">
+  <thead>
+    <tr>
+      <th class="num sortable" data-key="rank">Rank <span class="arrow"></span></th>
+      <th class="sortable" data-key="team">Team <span class="arrow"></span></th>
+      <th class="sortable" data-key="name">Name <span class="arrow"></span></th>
+      <th class="num sortable" data-key="oprPrior">OPR (Pre-event) <span class="arrow"></span></th>
+      <th class="num sortable" data-key="oprClaude">OPR (Event) <span class="arrow"></span></th>
+      <th class="num sortable col-ftcscout" data-key="oprFtcscout">OPR (ftcscout) <span class="arrow"></span></th>
+      <th class="num sortable" data-key="oprCurrent">OPR (current) <span class="arrow"></span></th>
+      <th class="num sortable" data-key="strengthOpp">Strength of opponents <span class="arrow"></span></th>
+      <th class="num sortable" data-key="strengthPartner">Strength of partner <span class="arrow"></span></th>
+      <th class="num sortable" data-key="sos">SOS <span class="arrow"></span></th>
+      <th class="num sortable" data-key="predictedWins">Predicted record <span class="arrow"></span></th>
+      <th class="num sortable" data-key="actualWins">Actual record <span class="arrow"></span></th>
+      <th class="num sortable" data-key="played">Matches <span class="arrow"></span></th>
+    </tr>
+  </thead>
+  <tbody id="resultsBody"></tbody>
+</table>
+
+<div id="downloadRow">
+  <button id="downloadBtn" class="secondary">Download spreadsheet (.xlsx)</button>
+  <div class="note">Downloads through your browser's normal download system, straight to your Downloads folder — this file runs standalone, no Claude involved.</div>
+</div>
+
+<div class="caption" id="tableCaption" style="display:none">OPR (Pre-event) is each team's best OPR from an earlier event this season (teams with no qualifying earlier event fall back to this event's OPR, marked with *). OPR (Event) is computed from this event's matches only; OPR (current) is ftcscout's season-wide rating, which may include other events. Strength of opponents = average, across a team's matches, of the two opposing teams' combined OPR. Strength of partner = average OPR of this team's own alliance partner across those same matches. SOS = strength of opponents &minus; strength of partner. The strength/SOS columns can use pre-event OPR, event OPR, or current OPR as the underlying rating (toggle above). Predicted record compares (own OPR + partner OPR) to the opposing alliance's combined OPR, match by match, using this event's OPR. Actual record is each team's real win-loss-tie record from the matches used above. When "Exclude surrogate matches" is checked, exclusion is per team, not per whole match: a match still counts normally for every team in it who wasn't a surrogate, even if their partner or an opponent was &mdash; it's simply skipped for the team(s) marked surrogate, for OPR, Matches, Predicted record, and Actual record alike. Click any column header to sort.</div>
+
+<script>
+const logEl = document.getElementById('log');
+function log(msg) { logEl.textContent += (logEl.textContent ? '\n' : '') + msg; }
+function clearLog() { logEl.textContent = ''; }
+
+let results = [];
+let sortState = { key: 'rank', dir: 'asc' };
+let teamMatches = {};
+let expandedTeams = new Set();
+
+function toggleExpand(team) {
+  if (expandedTeams.has(team)) expandedTeams.delete(team);
+  else expandedTeams.add(team);
+  renderTable();
+}
+
+function buildMatchTable(matches) {
+  if (!matches || !matches.length) return '<div class="note">No matches used for this team.</div>';
+  const rowsHtml = matches.map(m => `<tr>
+    <td>${m.match}</td>
+    <td>${m.level}</td>
+    <td>${m.alliance}</td>
+    <td>${m.partnersDisplay}</td>
+    <td>${m.opponentsDisplay}</td>
+    <td class="num">${m.ownScore === null ? '—' : m.ownScore}</td>
+    <td class="num">${m.oppScore === null ? '—' : m.oppScore}</td>
+    <td><span class="resultBadge ${m.result}">${m.result}</span></td>
+    <td class="num">${m.rp === null ? '—' : m.rp}</td>
+    <td>${m.surrogate ? 'Yes' : ''}</td>
+  </tr>`).join('');
+  return `<table class="detailTable"><thead><tr>
+    <th>Match</th><th>Level</th><th>Alliance</th><th>Partner(s)</th><th>Opponent(s)</th>
+    <th class="num">Score</th><th class="num">Opp Score</th><th>Result</th><th class="num">RP</th><th>Surrogate</th>
+  </tr></thead><tbody>${rowsHtml}</tbody></table>`;
+}
+
+async function fetchJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url} -> HTTP ${res.status}`);
+  return res.json();
+}
+
+function solveLeastSquares(rows, teamIds) {
+  const idx = new Map(teamIds.map((t, i) => [t, i]));
+  const n = teamIds.length;
+  const AtA = Array.from({ length: n }, () => new Array(n).fill(0));
+  const Ats = new Array(n).fill(0);
+  for (const row of rows) {
+    const cols = row.teams.map(t => idx.get(t));
+    for (const ci of cols) {
+      Ats[ci] += row.score;
+      for (const cj of cols) AtA[ci][cj] += 1;
+    }
+  }
+  const M = AtA.map((r, i) => [...r, Ats[i]]);
+  for (let col = 0; col < n; col++) {
+    let maxRow = col, maxVal = Math.abs(M[col][col]);
+    for (let r = col + 1; r < n; r++) {
+      if (Math.abs(M[r][col]) > maxVal) { maxVal = Math.abs(M[r][col]); maxRow = r; }
+    }
+    if (maxVal > 1e-9) {
+      [M[col], M[maxRow]] = [M[maxRow], M[col]];
+      const pivot = M[col][col];
+      for (let c = col; c <= n; c++) M[col][c] /= pivot;
+      for (let r = 0; r < n; r++) {
+        if (r === col) continue;
+        const factor = M[r][col];
+        if (factor === 0) continue;
+        for (let c = col; c <= n; c++) M[r][c] -= factor * M[col][c];
+      }
+    }
+  }
+  const result = {};
+  teamIds.forEach((t, i) => { result[t] = M[i][n]; });
+  return result;
+}
+
+// Given a per-team OPR source map, compute each team's strength of opponents / strength of partner
+// (averaged across the alliance-appearances in `rows`).
+function computeStrengths(rows, teamIds, oprSource) {
+  const played = {}, oppSum = {}, partnerSum = {}, partnerCount = {};
+  teamIds.forEach(t => { played[t] = 0; oppSum[t] = 0; partnerSum[t] = 0; partnerCount[t] = 0; });
+  for (const row of rows) {
+    const oppTotal = row.opponents.reduce((s, t) => s + (oprSource[t] || 0), 0);
+    for (const t of row.teams) {
+      played[t] += 1;
+      oppSum[t] += oppTotal;
+      const partners = (row.allTeams || row.teams).filter(x => x !== t);
+      if (partners.length) {
+        const partnerOpr = partners.reduce((s, p) => s + (oprSource[p] || 0), 0) / partners.length;
+        partnerSum[t] += partnerOpr;
+        partnerCount[t] += 1;
+      }
+    }
+  }
+  const out = {};
+  teamIds.forEach(t => {
+    const so = played[t] ? oppSum[t] / played[t] : null;
+    const sp = partnerCount[t] ? partnerSum[t] / partnerCount[t] : null;
+    out[t] = {
+      strengthOpp: so === null ? null : Math.round(so * 100) / 100,
+      strengthPartner: sp === null ? null : Math.round(sp * 100) / 100,
+      sos: (so === null || sp === null) ? null : Math.round((so - sp) * 100) / 100
+    };
+  });
+  return out;
+}
+
+function currentStrengthMode() {
+  if (document.getElementById('strengthEvent').checked) return 'event';
+  if (document.getElementById('strengthCurrent').checked) return 'current';
+  return 'prior';
+}
+
+function getRowStrength(r) {
+  const mode = currentStrengthMode();
+  if (mode === 'event') return { strengthOpp: r.strengthOppEvent, strengthPartner: r.strengthPartnerEvent, sos: r.sosEvent };
+  if (mode === 'current') return { strengthOpp: r.strengthOppCurrent, strengthPartner: r.strengthPartnerCurrent, sos: r.sosCurrent };
+  return { strengthOpp: r.strengthOppPrior, strengthPartner: r.strengthPartnerPrior, sos: r.sosPrior };
+}
+
+function renderTable() {
+  const derivedKeys = { strengthOpp: 1, strengthPartner: 1, sos: 1 };
+  const sorted = [...results].sort((a, b) => {
+    let av, bv;
+    if (derivedKeys[sortState.key]) {
+      av = getRowStrength(a)[sortState.key];
+      bv = getRowStrength(b)[sortState.key];
+    } else {
+      av = a[sortState.key]; bv = b[sortState.key];
+    }
+    let cmp;
+    if (typeof av === 'string' || typeof bv === 'string') {
+      cmp = String(av).localeCompare(String(bv));
+    } else {
+      const an = (av === null || av === undefined) ? -Infinity : av;
+      const bn = (bv === null || bv === undefined) ? -Infinity : bv;
+      cmp = an - bn;
+    }
+    return sortState.dir === 'desc' ? -cmp : cmp;
+  });
+  const tbody = document.getElementById('resultsBody');
+  const fmt = v => v === null || v === undefined ? '—' : v.toFixed(2);
+  tbody.innerHTML = sorted.map(r => {
+    const st = getRowStrength(r);
+    const expanded = expandedTeams.has(r.team);
+    const arrow = expanded ? '▾' : '▸';
+    const mainRow = `<tr>
+    <td class="num">${r.rank === null ? '—' : r.rank}</td>
+    <td class="teamCell" onclick="toggleExpand(${r.team})"><span class="expandArrow">${arrow}</span>${r.team}</td>
+    <td class="teamCell" onclick="toggleExpand(${r.team})"><strong>${r.name}</strong></td>
+    <td class="num">${fmt(r.oprPrior)}${r.priorFallback ? '*' : ''}</td>
+    <td class="num">${fmt(r.oprClaude)}</td>
+    <td class="num col-ftcscout">${fmt(r.oprFtcscout)}</td>
+    <td class="num">${fmt(r.oprCurrent)}</td>
+    <td class="num">${fmt(st.strengthOpp)}${currentStrengthMode() === 'prior' && r.priorFallback ? '*' : ''}</td>
+    <td class="num">${fmt(st.strengthPartner)}${currentStrengthMode() === 'prior' && r.priorFallback ? '*' : ''}</td>
+    <td class="num">${st.sos === null ? '—' : (st.sos > 0 ? '+' : '') + st.sos.toFixed(2)}</td>
+    <td class="num">${r.predictedWins}-${r.predictedLosses}${r.predictedTies ? '-' + r.predictedTies : ''}</td>
+    <td class="num">${r.actualWins}-${r.actualLosses}${r.actualTies ? '-' + r.actualTies : ''}</td>
+    <td class="num">${r.played}</td>
+  </tr>`;
+    const detailRow = expanded
+      ? `<tr class="detailRow"><td colspan="13">${buildMatchTable(teamMatches[r.team])}</td></tr>`
+      : '';
+    return mainRow + detailRow;
+  }).join('');
+
+  document.querySelectorAll('th.sortable').forEach(th => {
+    const active = th.dataset.key === sortState.key;
+    th.classList.toggle('active', active);
+    th.querySelector('.arrow').textContent = active ? (sortState.dir === 'desc' ? '↓' : '↑') : '';
+  });
+
+  updateFtcscoutVisibility();
+}
+
+function updateFtcscoutVisibility() {
+  const show = document.getElementById('showFtcscoutCol').checked;
+  document.querySelectorAll('.col-ftcscout').forEach(el => {
+    el.style.display = show ? '' : 'none';
+  });
+}
+
+document.querySelectorAll('th.sortable').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.key;
+    if (sortState.key === key) {
+      sortState.dir = sortState.dir === 'desc' ? 'asc' : 'desc';
+    } else {
+      sortState = { key, dir: 'desc' };
+    }
+    renderTable();
+  });
+});
+
+document.getElementById('showFtcscoutCol').addEventListener('change', updateFtcscoutVisibility);
+document.getElementById('strengthEvent').addEventListener('change', renderTable);
+document.getElementById('strengthPrior').addEventListener('change', renderTable);
+document.getElementById('strengthCurrent').addEventListener('change', renderTable);
+
+document.getElementById('runBtn').addEventListener('click', async () => {
+  clearLog();
+  document.getElementById('resultsTable').style.display = 'none';
+  document.getElementById('tableCaption').style.display = 'none';
+  document.getElementById('downloadRow').style.display = 'none';
+  document.getElementById('displayOpts').style.display = 'none';
+  document.getElementById('eventName').style.display = 'none';
+  expandedTeams = new Set();
+  teamMatches = {};
+  const runBtn = document.getElementById('runBtn');
+  runBtn.disabled = true;
+  document.getElementById('spinner').classList.add('active');
+
+  const season = document.getElementById('season').value.trim();
+  const code = document.getElementById('eventCode').value.trim().toUpperCase();
+  const excludeSurrogate = document.getElementById('excludeSurrogate').checked;
+
+  if (!season || !code) {
+    log('Enter both a season and an event code.');
+    runBtn.disabled = false;
+    return;
+  }
+
+  try {
+    log(`Fetching event info for ${season} ${code}...`);
+    let eventInfo = null;
+    try { eventInfo = await fetchJson(`https://api.ftcscout.org/rest/v1/events/${season}/${code}`); }
+    catch (e) { log('Could not fetch event info (continuing anyway): ' + e.message); }
+    if (eventInfo && eventInfo.name) {
+      log(`Event: ${eventInfo.name}`);
+      const eventNameEl = document.getElementById('eventName');
+      eventNameEl.textContent = `${eventInfo.name} (${code})`;
+      eventNameEl.style.display = 'block';
+    }
+    const eventStart = eventInfo && eventInfo.start ? eventInfo.start : null;
+
+    log('Fetching match data...');
+    const matches = await fetchJson(`https://api.ftcscout.org/rest/v1/events/${season}/${code}/matches`);
+    log(`Got ${matches.length} total matches.`);
+
+    let used = matches.filter(m => m.hasBeenPlayed && m.tournamentLevel === 'Quals');
+    const allPlayed = matches.filter(m => m.hasBeenPlayed);
+    log(`Using ${used.length} qualification matches for OPR, strength of schedule, and predicted/actual record (playoff matches aren't included in these, since fixed elimination-bracket alliances break the OPR math). Match logs below include all ${allPlayed.length} played matches.`);
+
+    const rows = [];
+    const teamIdSet = new Set();
+    let surrogateAppearancesExcluded = 0;
+    for (const m of used) {
+      const redEntries = m.teams.filter(t => t.alliance === 'Red');
+      const blueEntries = m.teams.filter(t => t.alliance === 'Blue');
+      const redTeams = redEntries.map(t => t.teamNumber);
+      const blueTeams = blueEntries.map(t => t.teamNumber);
+      const redCredited = excludeSurrogate ? redEntries.filter(t => !t.surrogate).map(t => t.teamNumber) : redTeams;
+      const blueCredited = excludeSurrogate ? blueEntries.filter(t => !t.surrogate).map(t => t.teamNumber) : blueTeams;
+      if (excludeSurrogate) surrogateAppearancesExcluded += (redTeams.length - redCredited.length) + (blueTeams.length - blueCredited.length);
+
+      if (redTeams.length && m.scores && m.scores.red) {
+        const s = m.scores.red;
+        const score = (typeof s.totalPointsNp === 'number') ? s.totalPointsNp : s.totalPoints;
+        if (redCredited.length) rows.push({ teams: redCredited, allTeams: redTeams, score, opponents: blueTeams });
+        redTeams.forEach(t => teamIdSet.add(t));
+      }
+      if (blueTeams.length && m.scores && m.scores.blue) {
+        const s = m.scores.blue;
+        const score = (typeof s.totalPointsNp === 'number') ? s.totalPointsNp : s.totalPoints;
+        if (blueCredited.length) rows.push({ teams: blueCredited, allTeams: blueTeams, score, opponents: redTeams });
+        blueTeams.forEach(t => teamIdSet.add(t));
+      }
+    }
+    const teamIds = [...teamIdSet].sort((a, b) => a - b);
+    if (excludeSurrogate) log(`Excluded ${surrogateAppearancesExcluded} surrogate team-match appearances from OPR, match count, predicted record, and actual record (per team, not per whole match).`);
+    log(`${teamIds.length} unique teams found. Solving OPR (Claude)...`);
+
+    const oprClaude = solveLeastSquares(rows, teamIds);
+
+    log('Fetching team names, ftcscout\'s own OPR, and official rank for this event...');
+    const names = {};
+    const oprFtcscout = {};
+    const officialRank = {};
+    try {
+      const eventTeams = await fetchJson(`https://api.ftcscout.org/rest/v1/events/${season}/${code}/teams`);
+      for (const et of eventTeams) {
+        if (et.stats && et.stats.opr && typeof et.stats.opr.totalPointsNp === 'number') {
+          oprFtcscout[et.teamNumber] = et.stats.opr.totalPointsNp;
+        }
+        if (et.stats && typeof et.stats.rank === 'number') {
+          officialRank[et.teamNumber] = et.stats.rank;
+        }
+      }
+    } catch (e) {
+      log('Could not fetch ftcscout\'s per-event OPR/rank: ' + e.message);
+    }
+
+    log('Fetching each team\'s current season-wide OPR, and season event history...');
+    const oprCurrent = {};
+    const teamEventHistory = {};
+    await Promise.all(teamIds.map(async t => {
+      try {
+        const info = await fetchJson(`https://api.ftcscout.org/rest/v1/teams/${t}`);
+        names[t] = info.name || `Team ${t}`;
+      } catch (e) { names[t] = `Team ${t}`; }
+      try {
+        const qs = await fetchJson(`https://api.ftcscout.org/rest/v1/teams/${t}/quick-stats?season=${season}`);
+        if (qs && qs.tot && typeof qs.tot.value === 'number') oprCurrent[t] = qs.tot.value;
+      } catch (e) { /* leave unset if team has no season-wide stats yet */ }
+      try {
+        teamEventHistory[t] = await fetchJson(`https://api.ftcscout.org/rest/v1/teams/${t}/events/${season}`);
+      } catch (e) { teamEventHistory[t] = []; }
+    }));
+
+    // Build a per-team match log (for the expandable match detail rows). Includes all played
+    // matches (quals + playoffs), even though OPR/strength/predicted/actual only use quals.
+    const teamLabel = t => `${t}${names[t] ? ' ' + names[t] : ''}`;
+    // Ranking points: 3 for a qual win, 1 for a tie, 0 for a loss, plus 1 RP each for any bonus
+    // flags on the alliance's score (verified against ftcscout's own published per-team RP average).
+    // Playoff matches don't award ranking points, so rp is left null for those.
+    function rpFor(level, scoreObj, ownScore, oppScore) {
+      if (level !== 'Quals' || ownScore === null || oppScore === null) return null;
+      const winRp = ownScore > oppScore ? 3 : (ownScore < oppScore ? 0 : 1);
+      const bonusRp = (scoreObj.movementRp ? 1 : 0) + (scoreObj.goalRp ? 1 : 0) + (scoreObj.patternRp ? 1 : 0);
+      return winRp + bonusRp;
+    }
+    teamIds.forEach(t => { teamMatches[t] = []; });
+    for (const m of allPlayed) {
+      const redEntries = m.teams.filter(t => t.alliance === 'Red');
+      const blueEntries = m.teams.filter(t => t.alliance === 'Blue');
+      const redTeams = redEntries.map(t => t.teamNumber);
+      const blueTeams = blueEntries.map(t => t.teamNumber);
+      const redScore = m.scores && m.scores.red && typeof m.scores.red.totalPoints === 'number' ? m.scores.red.totalPoints : null;
+      const blueScore = m.scores && m.scores.blue && typeof m.scores.blue.totalPoints === 'number' ? m.scores.blue.totalPoints : null;
+      const matchLabel = m.matchNumber || m.id;
+      const addEntries = (entries, ownTeams, oppTeams, ownScore, oppScore, scoreObj) => {
+        entries.forEach(e => {
+          const t = e.teamNumber;
+          if (!teamMatches[t]) return;
+          const partners = ownTeams.filter(x => x !== t);
+          let result;
+          if (ownScore === null || oppScore === null) result = '—';
+          else result = ownScore > oppScore ? 'W' : (ownScore < oppScore ? 'L' : 'T');
+          teamMatches[t].push({
+            match: matchLabel,
+            level: m.tournamentLevel,
+            alliance: e.alliance,
+            partnersDisplay: partners.length ? partners.map(teamLabel).join(', ') : '—',
+            opponentsDisplay: oppTeams.length ? oppTeams.map(teamLabel).join(', ') : '—',
+            ownScore,
+            oppScore,
+            result,
+            rp: rpFor(m.tournamentLevel, scoreObj, ownScore, oppScore),
+            surrogate: !!e.surrogate
+          });
+        });
+      };
+      if (m.scores && m.scores.red) addEntries(redEntries, redTeams, blueTeams, redScore, blueScore, m.scores.red);
+      if (m.scores && m.scores.blue) addEntries(blueEntries, blueTeams, redTeams, blueScore, redScore, m.scores.blue);
+    }
+    teamIds.forEach(t => teamMatches[t].sort((a, b) => (typeof a.match === 'number' && typeof b.match === 'number') ? a.match - b.match : String(a.match).localeCompare(String(b.match))));
+
+    // Figure out, for each team, their best np OPR from an event earlier this season than the current one.
+    log('Looking up each team\'s earlier events this season, to find their best prior OPR...');
+    const priorBestOpr = {};
+    const priorFallback = {};
+    if (eventStart) {
+      const otherCodes = new Set();
+      teamIds.forEach(t => (teamEventHistory[t] || []).forEach(e => {
+        if (e.eventCode && e.eventCode !== code) otherCodes.add(e.eventCode);
+      }));
+      const eventStarts = {};
+      await Promise.all([...otherCodes].map(async ec => {
+        try {
+          const info = await fetchJson(`https://api.ftcscout.org/rest/v1/events/${season}/${ec}`);
+          if (info && info.start) eventStarts[ec] = info.start;
+        } catch (e) { /* skip events we can't resolve */ }
+      }));
+      teamIds.forEach(t => {
+        const hist = teamEventHistory[t] || [];
+        let best = null;
+        for (const e of hist) {
+          if (!e.eventCode || e.eventCode === code) continue;
+          const st = eventStarts[e.eventCode];
+          if (!st || st >= eventStart) continue;
+          const np = e.stats && e.stats.opr && typeof e.stats.opr.totalPointsNp === 'number' ? e.stats.opr.totalPointsNp : null;
+          if (np !== null && (best === null || np > best)) best = np;
+        }
+        if (best !== null) {
+          priorBestOpr[t] = best;
+          priorFallback[t] = false;
+        } else {
+          priorBestOpr[t] = oprClaude[t];
+          priorFallback[t] = true;
+        }
+      });
+    } else {
+      log('No event start date available; "highest OPR earlier this season" will fall back to this event\'s OPR for all teams.');
+      teamIds.forEach(t => { priorBestOpr[t] = oprClaude[t]; priorFallback[t] = true; });
+    }
+
+    log('Computing strength of opponents, strength of partner, SOS (pre-event, event, and current OPR)...');
+    const strengthsEvent = computeStrengths(rows, teamIds, oprClaude);
+    const strengthsPrior = computeStrengths(rows, teamIds, priorBestOpr);
+    const strengthsCurrent = computeStrengths(rows, teamIds, oprCurrent);
+
+    log('Computing predicted record (from OPR) and actual record (from real match outcomes)...');
+    const predW = {}, predL = {}, predT = {}, played = {};
+    teamIds.forEach(t => { predW[t] = 0; predL[t] = 0; predT[t] = 0; played[t] = 0; });
+    for (const row of rows) {
+      const oppTotal = row.opponents.reduce((s, t) => s + (oprClaude[t] || 0), 0);
+      const ownAllianceTotal = (row.allTeams || row.teams).reduce((s, x) => s + (oprClaude[x] || 0), 0);
+      for (const t of row.teams) {
+        played[t] += 1;
+        if (ownAllianceTotal > oppTotal) predW[t] += 1;
+        else if (ownAllianceTotal < oppTotal) predL[t] += 1;
+        else predT[t] += 1;
+      }
+    }
+
+    const actW = {}, actL = {}, actT = {};
+    teamIds.forEach(t => { actW[t] = 0; actL[t] = 0; actT[t] = 0; });
+    for (const m of used) {
+      const redEntries = m.teams.filter(t => t.alliance === 'Red');
+      const blueEntries = m.teams.filter(t => t.alliance === 'Blue');
+      if (!m.scores || !m.scores.red || !m.scores.blue) continue;
+      const rs = m.scores.red.totalPoints, bs = m.scores.blue.totalPoints;
+      if (typeof rs !== 'number' || typeof bs !== 'number') continue;
+      const redWin = rs > bs, blueWin = bs > rs;
+      for (const e of redEntries) {
+        if (excludeSurrogate && e.surrogate) continue;
+        const t = e.teamNumber;
+        if (redWin) actW[t]++; else if (blueWin) actL[t]++; else actT[t]++;
+      }
+      for (const e of blueEntries) {
+        if (excludeSurrogate && e.surrogate) continue;
+        const t = e.teamNumber;
+        if (blueWin) actW[t]++; else if (redWin) actL[t]++; else actT[t]++;
+      }
+    }
+
+    results = teamIds.map(t => {
+      const oc = Math.round(oprClaude[t] * 100) / 100;
+      const of_ = (t in oprFtcscout) ? Math.round(oprFtcscout[t] * 100) / 100 : null;
+      const se = strengthsEvent[t], sp = strengthsPrior[t], sc = strengthsCurrent[t];
+      return {
+        team: t,
+        rank: (t in officialRank) ? officialRank[t] : null,
+        name: names[t],
+        oprPrior: (t in priorBestOpr) ? Math.round(priorBestOpr[t] * 100) / 100 : null,
+        oprClaude: oc,
+        oprFtcscout: of_,
+        oprCurrent: (t in oprCurrent) ? Math.round(oprCurrent[t] * 100) / 100 : null,
+        strengthOppEvent: se.strengthOpp,
+        strengthPartnerEvent: se.strengthPartner,
+        sosEvent: se.sos,
+        strengthOppPrior: sp.strengthOpp,
+        strengthPartnerPrior: sp.strengthPartner,
+        sosPrior: sp.sos,
+        strengthOppCurrent: sc.strengthOpp,
+        strengthPartnerCurrent: sc.strengthPartner,
+        sosCurrent: sc.sos,
+        priorFallback: !!priorFallback[t],
+        predictedWins: predW[t],
+        predictedLosses: predL[t],
+        predictedTies: predT[t],
+        actualWins: actW[t],
+        actualLosses: actL[t],
+        actualTies: actT[t],
+        played: played[t]
+      };
+    });
+
+    sortState = { key: 'rank', dir: 'asc' };
+    document.getElementById('strengthPrior').checked = true;
+    document.getElementById('showFtcscoutCol').checked = false;
+    renderTable();
+    document.getElementById('resultsTable').style.display = '';
+    document.getElementById('tableCaption').style.display = '';
+    document.getElementById('displayOpts').style.display = '';
+
+    const fallbackCount = teamIds.filter(t => priorFallback[t]).length;
+    if (fallbackCount) log(`${fallbackCount} team(s) had no earlier event this season, so their "prior OPR" falls back to this event's OPR (marked with * in that mode).`);
+    log('Done.');
+
+    document.getElementById('downloadBtn').onclick = () => {
+      const mode = currentStrengthMode();
+      const modeLabel = mode === 'prior' ? 'pre-event OPR' : (mode === 'current' ? 'current OPR' : 'event OPR');
+      const strengthOppVal = mode === 'prior' ? 'strengthOppPrior' : (mode === 'current' ? 'strengthOppCurrent' : 'strengthOppEvent');
+      const strengthPartnerVal = mode === 'prior' ? 'strengthPartnerPrior' : (mode === 'current' ? 'strengthPartnerCurrent' : 'strengthPartnerEvent');
+      const sosVal = mode === 'prior' ? 'sosPrior' : (mode === 'current' ? 'sosCurrent' : 'sosEvent');
+      const wb = XLSX.utils.book_new();
+      const teamSheet = XLSX.utils.json_to_sheet(results.map(r => ({
+        Rank: r.rank, Team: r.team, Name: r.name,
+        'OPR (Pre-event)': r.oprPrior,
+        'OPR (Event)': r.oprClaude,
+        'OPR (ftcscout)': r.oprFtcscout,
+        'OPR (current)': r.oprCurrent,
+        [`Strength of opponents (${modeLabel})`]: r[strengthOppVal],
+        [`Strength of partner (${modeLabel})`]: r[strengthPartnerVal],
+        SOS: r[sosVal],
+        'Used prior-OPR fallback': r.priorFallback ? 'yes' : 'no',
+        'Predicted wins': r.predictedWins,
+        'Predicted losses': r.predictedLosses,
+        'Predicted ties': r.predictedTies,
+        'Actual wins': r.actualWins,
+        'Actual losses': r.actualLosses,
+        'Actual ties': r.actualTies,
+        'Matches Used': r.played
+      })));
+      XLSX.utils.book_append_sheet(wb, teamSheet, 'Teams');
+
+      const matchRows = used.map(m => {
+        const red = m.teams.filter(t => t.alliance === 'Red').map(t => t.teamNumber);
+        const blue = m.teams.filter(t => t.alliance === 'Blue').map(t => t.teamNumber);
+        return {
+          Match: m.id,
+          Level: m.tournamentLevel,
+          Red1: red[0] || '', Red2: red[1] || '',
+          Blue1: blue[0] || '', Blue2: blue[1] || '',
+          'Red Score (np)': m.scores.red.totalPointsNp ?? m.scores.red.totalPoints,
+          'Blue Score (np)': m.scores.blue.totalPointsNp ?? m.scores.blue.totalPoints,
+          'Red Score (actual)': m.scores.red.totalPoints,
+          'Blue Score (actual)': m.scores.blue.totalPoints
+        };
+      });
+      const matchSheet = XLSX.utils.json_to_sheet(matchRows);
+      XLSX.utils.book_append_sheet(wb, matchSheet, 'Matches');
+
+      XLSX.writeFile(wb, `${code}_OPR_SOS.xlsx`);
+    };
+    document.getElementById('downloadRow').style.display = '';
+
+  } catch (err) {
+    log('Error: ' + err.message);
+    log('If this is a network/CORS error, ftcscout\'s API may not allow direct browser requests from a local file. Try running this file from a local web server instead of double-clicking it, or let me know and we can adjust the approach.');
+  } finally {
+    runBtn.disabled = false;
+    document.getElementById('spinner').classList.remove('active');
+  }
+});
+</script>
+
+</body>
+</html>
