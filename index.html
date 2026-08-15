@@ -5,7 +5,7 @@
 <title>FTC Event Strength of Schedule</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
-  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 1080px; margin: 40px auto; padding: 0 20px; color: #222; }
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 1120px; margin: 40px auto; padding: 0 20px; color: #222; }
   h1 { font-size: 22px; font-weight: 600; }
   .sub { color: #666; font-size: 14px; margin-bottom: 24px; }
   .row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
@@ -34,6 +34,7 @@
   .note { font-size: 12px; color: #888; margin-top: 4px; }
   .caption { font-size: 12px; color: #888; margin: 24px 0 12px; padding-top: 12px; border-top: 1px solid #eee; }
   #eventName { font-size: 28px; font-weight: 700; margin: 16px 0 10px; padding-bottom: 8px; border-bottom: 2px solid #222; display: none; }
+  #forecastBanner { display: none; background: #fff8e1; border: 1px solid #f0d68a; color: #7a5c00; font-size: 13px; padding: 10px 14px; border-radius: 6px; margin: 0 0 16px; }
   .teamCell { cursor: pointer; }
   .teamCell:hover { text-decoration: underline; color: #06c; }
   .expandArrow { display: inline-block; width: 12px; color: #999; }
@@ -45,6 +46,13 @@
   .resultBadge.W { color: #1a7f37; }
   .resultBadge.L { color: #c0392b; }
   .resultBadge.T { color: #888; }
+  .resultBadge.U { color: #999; font-weight: 500; }
+  .resultBadge.predicted { opacity: 0.75; border: 1px dashed currentColor; border-radius: 3px; padding: 0 4px; }
+  .predTag { font-size: 10px; color: #999; font-style: italic; margin-left: 3px; }
+  .awardsBlock { margin-top: 12px; font-size: 12px; }
+  .awardsBlock strong { display: block; color: #888; font-weight: 500; margin-bottom: 4px; }
+  .awardsBlock ul { margin: 0; padding-left: 18px; }
+  .debugField { border: 1px dashed #ccc !important; background: #fffdf5; }
   .spinner { display: none; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: #222; border-radius: 50%; margin-left: 10px; vertical-align: middle; animation: spin 0.7s linear infinite; }
   .spinner.active { display: inline-block; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -53,7 +61,7 @@
 <body>
 
 <h1>FTC Event Strength of Schedule</h1>
-<div class="sub">Enter a season and event code (e.g. season 2025, code USGACMP). Pulls live match data from ftcscout.org and computes OPR for this event, alongside ftcscout's own published numbers, plus each team's strength of schedule.</div>
+<div class="sub">Enter a season and event code (e.g. season 2025, code USGACMP). Pulls live match data from ftcscout.org and computes OPR for this event, alongside ftcscout's own published numbers, plus each team's strength of schedule. Works before matches are played too &mdash; once the schedule is posted, use Pre-event or Current OPR to forecast strength of schedule and predicted record ahead of time.</div>
 
 <div class="row">
   <div>
@@ -70,6 +78,10 @@
 
 <div class="opts">
   <label><input type="checkbox" id="excludeSurrogate" checked> Exclude surrogate matches</label>
+  <div id="debugFieldWrap" style="display:none">
+    <label for="debugMatchLimit">Debug: simulate only first N qual matches played (blank = actual)</label>
+    <input type="number" id="debugMatchLimit" class="debugField" min="0" placeholder="all played">
+  </div>
 </div>
 
 <div class="opts2" id="displayOpts" style="display:none">
@@ -86,14 +98,18 @@
 
 <h2 id="eventName"></h2>
 
+<div id="forecastBanner">No matches have been played at this event yet. OPR (Event) and Actual record will stay blank until matches are played &mdash; everything else, including Strength of Schedule and Predicted record, is already computed from the posted schedule using Pre-event / Current OPR.</div>
+
 <table id="resultsTable" style="display:none">
   <thead>
     <tr>
       <th class="num sortable" data-key="rank">Rank <span class="arrow"></span></th>
+      <th class="num sortable" data-key="avgRp">RP <span class="arrow"></span></th>
       <th class="sortable" data-key="team">Team <span class="arrow"></span></th>
       <th class="sortable" data-key="name">Name <span class="arrow"></span></th>
       <th class="num sortable" data-key="oprPrior">OPR (Pre-event) <span class="arrow"></span></th>
       <th class="num sortable" data-key="oprClaude">OPR (Event) <span class="arrow"></span></th>
+      <th class="num sortable col-ccwm" data-key="ccwm">CCWM <span class="arrow"></span></th>
       <th class="num sortable col-ftcscout" data-key="oprFtcscout">OPR (ftcscout) <span class="arrow"></span></th>
       <th class="num sortable" data-key="oprCurrent">OPR (current) <span class="arrow"></span></th>
       <th class="num sortable" data-key="strengthOpp">Strength of opponents <span class="arrow"></span></th>
@@ -101,7 +117,8 @@
       <th class="num sortable" data-key="sos">SOS <span class="arrow"></span></th>
       <th class="num sortable" data-key="predictedWins">Predicted record <span class="arrow"></span></th>
       <th class="num sortable" data-key="actualWins">Actual record <span class="arrow"></span></th>
-      <th class="num sortable" data-key="played">Matches <span class="arrow"></span></th>
+      <th class="num sortable" data-key="scheduled">Scheduled <span class="arrow"></span></th>
+      <th class="num sortable" data-key="played">Played <span class="arrow"></span></th>
     </tr>
   </thead>
   <tbody id="resultsBody"></tbody>
@@ -112,17 +129,58 @@
   <div class="note">Downloads through your browser's normal download system, straight to your Downloads folder — this file runs standalone, no Claude involved.</div>
 </div>
 
-<div class="caption" id="tableCaption" style="display:none">OPR (Pre-event) is each team's best OPR from an earlier event this season (teams with no qualifying earlier event fall back to this event's OPR, marked with *). OPR (Event) is computed from this event's matches only; OPR (current) is ftcscout's season-wide rating, which may include other events. Strength of opponents = average, across a team's matches, of the two opposing teams' combined OPR. Strength of partner = average OPR of this team's own alliance partner across those same matches. SOS = strength of opponents &minus; strength of partner. The strength/SOS columns can use pre-event OPR, event OPR, or current OPR as the underlying rating (toggle above). Predicted record compares (own OPR + partner OPR) to the opposing alliance's combined OPR, match by match, using this event's OPR. Actual record is each team's real win-loss-tie record from the matches used above. When "Exclude surrogate matches" is checked, exclusion is per team, not per whole match: a match still counts normally for every team in it who wasn't a surrogate, even if their partner or an opponent was &mdash; it's simply skipped for the team(s) marked surrogate, for OPR, Matches, Predicted record, and Actual record alike. Click any column header to sort.</div>
+<div class="caption" id="tableCaption" style="display:none">RP is each team's average ranking points per qual match played so far (3 for a win, 1 for a tie, 0 for a loss, plus 1 for each bonus RP awarded), and stays blank until a team has played at least one qual match. Rank is derived from RP, highest average first, with ties broken by average alliance score (highest first), then by Pre-event OPR (highest first) &mdash; teams that haven't played any qual matches yet are ranked below teams that have, using Pre-event OPR alone (this is how, before any matches are played, Rank becomes a pure pre-event OPR forecast). This is this page's own live ranking based on results so far (or on the debug-simulated subset, if a Debug limit is set), not ftcscout's official final-event rank. OPR (Pre-event) is each team's best OPR from an earlier event this season (teams with no qualifying earlier event fall back to this event's OPR once it exists, marked with *). OPR (Event) is computed from this event's played matches only, and stays blank until at least one of a team's matches has been played. CCWM (Calculated Contribution to Win Margin, hidden by default; add ?ccwm=Y to the page's URL to reveal it, in the table and in the downloaded spreadsheet) is computed the same way as OPR (Event) &mdash; same regression, same played matches &mdash; but solved against each alliance's actual score margin (own score minus opponent score) instead of raw score, so it estimates how many points a team tends to contribute to their alliance actually winning by, factoring in defense/disruption in a way pure scoring (OPR) doesn't; it stays blank until a team has played, same as OPR (Event). OPR (current) is ftcscout's season-wide rating, which may include other events. Strength of opponents = average, across a team's scheduled matches, of the two opposing teams' combined OPR. Strength of partner = average OPR of this team's own alliance partner across those same matches. SOS = strength of opponents &minus; strength of partner. Strength/SOS and Predicted record are both computed from the full posted schedule (played or not) and both use whichever OPR source is selected above (Pre-event, Event, or End-of-Season) &mdash; so with Pre-event or End-of-Season selected, both work before a single match has been played. Actual record is each team's real win-loss-tie record from matches that have actually been played so far. Scheduled is the number of this team's quals matches on the posted schedule; Played is how many of those have happened so far. When "Exclude surrogate matches" is checked, exclusion is per team, not per whole match: a match still counts normally for every team in it who wasn't a surrogate, even if their partner or an opponent was &mdash; it's simply skipped for the team(s) marked surrogate, everywhere above. Expand a team to see its full match log (including awards at the bottom, if any); matches that haven't been played yet show a predicted score and result (in italics, marked "pred.") based on the OPR source currently selected above, when that data is available &mdash; otherwise they show as "Upcoming." The Debug field (hidden by default; add ?debug=Y to the page's URL to reveal it) simulates only the first N qual matches as played (0 simulates none played yet), for previewing how the page looks at an earlier point in the event; it only affects real matches that have actually happened, never fabricates results. Whenever fewer qual matches have been played than are scheduled &mdash; whether because the real event is still mid-quals, or because Debug is simulating an earlier point in it &mdash; playoff matches and Awards are both left out of each team's expanded match log entirely, since neither exists yet at that point (alliance selection and the playoff bracket only happen after quals finish, and awards are handed out after playoffs conclude). Click any column header to sort.</div>
 
 <script>
 const logEl = document.getElementById('log');
 function log(msg) { logEl.textContent += (logEl.textContent ? '\n' : '') + msg; }
 function clearLog() { logEl.textContent = ''; }
+function round2(v) { return v === null || v === undefined ? null : Math.round(v * 100) / 100; }
 
 let results = [];
 let sortState = { key: 'rank', dir: 'asc' };
 let teamMatches = {};
+let teamAwards = {};
 let expandedTeams = new Set();
+let oprBySource = { event: {}, prior: {}, current: {} };
+let suppressAwardsInLog = false;
+let showCcwmCol = false;
+
+// The debug field is a testing aid, not something a normal visitor should stumble onto — it only
+// appears when the page is loaded with ?debug=Y (or 1/true/yes) in the URL. CCWM is an experimental
+// column Dean's still deciding on, so it's likewise opt-in only, via ?ccwm=Y (or 1/true/yes).
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  const flag = name => ['y', 'yes', '1', 'true'].includes((params.get(name) || '').toLowerCase());
+  if (flag('debug')) document.getElementById('debugFieldWrap').style.display = '';
+  showCcwmCol = flag('ccwm');
+  updateCcwmVisibility();
+})();
+
+function displayLevel(level) { return level === 'Quals' ? 'Quals' : 'Playoff'; }
+
+function friendlyAwardType(type) {
+  return String(type || '').replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+}
+function ordinal(n) {
+  if (typeof n !== 'number') return '';
+  const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+function buildAwardsHtml(awards) {
+  // ftcscout's award data is inconsistent event-to-event (it depends on their own scrapers/API
+  // picking it up) — when there's nothing for this team, just omit the Awards block entirely rather
+  // than asserting "no awards" as if that were a confirmed fact.
+  if (!awards || !awards.length) return '';
+  const items = awards.map(a => {
+    const parts = [friendlyAwardType(a.type)];
+    if (a.placement) parts.push(`(${ordinal(a.placement)} place)`);
+    if (a.personName) parts.push(`&mdash; ${a.personName}`);
+    if (a.divisionName) parts.push(`[${a.divisionName}]`);
+    return `<li>${parts.join(' ')}</li>`;
+  }).join('');
+  return `<div class="awardsBlock"><strong>Awards</strong><ul>${items}</ul></div>`;
+}
 
 function toggleExpand(team) {
   if (expandedTeams.has(team)) expandedTeams.delete(team);
@@ -130,20 +188,50 @@ function toggleExpand(team) {
   renderTable();
 }
 
-function buildMatchTable(matches) {
-  if (!matches || !matches.length) return '<div class="note">No matches used for this team.</div>';
-  const rowsHtml = matches.map(m => `<tr>
+// For an unplayed match, predict each alliance's score as the sum of that source's OPR across the
+// alliance (self + partner(s)). Returns nulls if any needed team's OPR isn't known in this source yet.
+function predictMatchScore(oprSource, teamNums) {
+  if (!oprSource || !teamNums || !teamNums.length) return null;
+  const vals = teamNums.map(t => oprSource[t]);
+  if (!vals.every(v => typeof v === 'number')) return null;
+  return vals.reduce((s, v) => s + v, 0);
+}
+
+function buildMatchTable(matches, oprSource) {
+  if (!matches || !matches.length) return '<div class="note">No matches scheduled for this team.</div>';
+  const rowsHtml = matches.map(m => {
+    let scoreCell, oppScoreCell, resultCell;
+    if (m.played) {
+      scoreCell = m.ownScore === null ? '—' : m.ownScore;
+      oppScoreCell = m.oppScore === null ? '—' : m.oppScore;
+      resultCell = `<span class="resultBadge ${m.result}">${m.result}</span>`;
+    } else {
+      const predOwn = predictMatchScore(oprSource, m.ownAllianceTeams);
+      const predOpp = predictMatchScore(oprSource, m.opponentsTeams);
+      if (predOwn !== null && predOpp !== null) {
+        const predResult = predOwn > predOpp ? 'W' : (predOwn < predOpp ? 'L' : 'T');
+        scoreCell = `${Math.round(predOwn)} <span class="predTag">(pred.)</span>`;
+        oppScoreCell = `${Math.round(predOpp)} <span class="predTag">(pred.)</span>`;
+        resultCell = `<span class="resultBadge ${predResult} predicted">${predResult}</span><span class="predTag">(pred.)</span>`;
+      } else {
+        scoreCell = '—';
+        oppScoreCell = '—';
+        resultCell = '<span class="resultBadge U">Upcoming</span>';
+      }
+    }
+    return `<tr>
     <td>${m.match}</td>
-    <td>${m.level}</td>
+    <td>${displayLevel(m.level)}</td>
     <td>${m.alliance}</td>
     <td>${m.partnersDisplay}</td>
     <td>${m.opponentsDisplay}</td>
-    <td class="num">${m.ownScore === null ? '—' : m.ownScore}</td>
-    <td class="num">${m.oppScore === null ? '—' : m.oppScore}</td>
-    <td><span class="resultBadge ${m.result}">${m.result}</span></td>
+    <td class="num">${scoreCell}</td>
+    <td class="num">${oppScoreCell}</td>
+    <td>${resultCell}</td>
     <td class="num">${m.rp === null ? '—' : m.rp}</td>
     <td>${m.surrogate ? 'Yes' : ''}</td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
   return `<table class="detailTable"><thead><tr>
     <th>Match</th><th>Level</th><th>Alliance</th><th>Partner(s)</th><th>Opponent(s)</th>
     <th class="num">Score</th><th class="num">Opp Score</th><th>Result</th><th class="num">RP</th><th>Surrogate</th>
@@ -191,35 +279,64 @@ function solveLeastSquares(rows, teamIds) {
   return result;
 }
 
-// Given a per-team OPR source map, compute each team's strength of opponents / strength of partner
-// (averaged across the alliance-appearances in `rows`).
+// Given a per-team OPR source map, compute each team's strength of opponents / strength of partner,
+// averaged across `rows` (the full posted schedule, played or not). Any row where an opponent's or
+// partner's OPR isn't known in this source yet (e.g. a team with no OPR (Event) before it has played)
+// is skipped for that calculation rather than treated as a zero, so results stay null instead of
+// silently misleading until real data exists.
 function computeStrengths(rows, teamIds, oprSource) {
-  const played = {}, oppSum = {}, partnerSum = {}, partnerCount = {};
-  teamIds.forEach(t => { played[t] = 0; oppSum[t] = 0; partnerSum[t] = 0; partnerCount[t] = 0; });
+  const oppKnownCount = {}, oppSum = {}, partnerKnownCount = {}, partnerSum = {};
+  teamIds.forEach(t => { oppKnownCount[t] = 0; oppSum[t] = 0; partnerKnownCount[t] = 0; partnerSum[t] = 0; });
   for (const row of rows) {
-    const oppTotal = row.opponents.reduce((s, t) => s + (oprSource[t] || 0), 0);
+    const oppVals = row.opponents.map(t => oprSource[t]);
+    const oppKnown = oppVals.length > 0 && oppVals.every(v => typeof v === 'number');
+    const oppTotal = oppKnown ? oppVals.reduce((s, v) => s + v, 0) : null;
     for (const t of row.teams) {
-      played[t] += 1;
-      oppSum[t] += oppTotal;
+      if (oppTotal !== null) { oppSum[t] += oppTotal; oppKnownCount[t] += 1; }
       const partners = (row.allTeams || row.teams).filter(x => x !== t);
       if (partners.length) {
-        const partnerOpr = partners.reduce((s, p) => s + (oprSource[p] || 0), 0) / partners.length;
-        partnerSum[t] += partnerOpr;
-        partnerCount[t] += 1;
+        const partnerVals = partners.map(p => oprSource[p]);
+        const partnerKnown = partnerVals.every(v => typeof v === 'number');
+        if (partnerKnown) {
+          const partnerAvg = partnerVals.reduce((s, v) => s + v, 0) / partners.length;
+          partnerSum[t] += partnerAvg;
+          partnerKnownCount[t] += 1;
+        }
       }
     }
   }
   const out = {};
   teamIds.forEach(t => {
-    const so = played[t] ? oppSum[t] / played[t] : null;
-    const sp = partnerCount[t] ? partnerSum[t] / partnerCount[t] : null;
+    const so = oppKnownCount[t] ? oppSum[t] / oppKnownCount[t] : null;
+    const sp = partnerKnownCount[t] ? partnerSum[t] / partnerKnownCount[t] : null;
     out[t] = {
-      strengthOpp: so === null ? null : Math.round(so * 100) / 100,
-      strengthPartner: sp === null ? null : Math.round(sp * 100) / 100,
-      sos: (so === null || sp === null) ? null : Math.round((so - sp) * 100) / 100
+      strengthOpp: round2(so),
+      strengthPartner: round2(sp),
+      sos: (so === null || sp === null) ? null : round2(so - sp)
     };
   });
   return out;
+}
+
+// Predicted record (own alliance OPR + partner OPR vs. opposing alliance OPR), computed the same
+// way across the full posted schedule, for a given OPR source. Matches where the needed OPR values
+// aren't known yet are simply skipped, rather than counted as ties.
+function computePredicted(rows, teamIds, oprSource) {
+  const w = {}, l = {}, t2 = {};
+  teamIds.forEach(t => { w[t] = 0; l[t] = 0; t2[t] = 0; });
+  for (const row of rows) {
+    const ownVals = (row.allTeams || row.teams).map(x => oprSource[x]);
+    const oppVals = row.opponents.map(x => oprSource[x]);
+    if (!ownVals.every(v => typeof v === 'number') || !oppVals.length || !oppVals.every(v => typeof v === 'number')) continue;
+    const ownTotal = ownVals.reduce((s, v) => s + v, 0);
+    const oppTotal = oppVals.reduce((s, v) => s + v, 0);
+    for (const team of row.teams) {
+      if (ownTotal > oppTotal) w[team] += 1;
+      else if (ownTotal < oppTotal) l[team] += 1;
+      else t2[team] += 1;
+    }
+  }
+  return { w, l, t2 };
 }
 
 function currentStrengthMode() {
@@ -235,6 +352,13 @@ function getRowStrength(r) {
   return { strengthOpp: r.strengthOppPrior, strengthPartner: r.strengthPartnerPrior, sos: r.sosPrior };
 }
 
+function getRowPredicted(r) {
+  const mode = currentStrengthMode();
+  if (mode === 'event') return { w: r.predictedWinsEvent, l: r.predictedLossesEvent, t: r.predictedTiesEvent };
+  if (mode === 'current') return { w: r.predictedWinsCurrent, l: r.predictedLossesCurrent, t: r.predictedTiesCurrent };
+  return { w: r.predictedWinsPrior, l: r.predictedLossesPrior, t: r.predictedTiesPrior };
+}
+
 function renderTable() {
   const derivedKeys = { strengthOpp: 1, strengthPartner: 1, sos: 1 };
   const sorted = [...results].sort((a, b) => {
@@ -242,15 +366,26 @@ function renderTable() {
     if (derivedKeys[sortState.key]) {
       av = getRowStrength(a)[sortState.key];
       bv = getRowStrength(b)[sortState.key];
+    } else if (sortState.key === 'predictedWins') {
+      av = getRowPredicted(a).w; bv = getRowPredicted(b).w;
     } else {
       av = a[sortState.key]; bv = b[sortState.key];
+    }
+    // Rank and RP are both "no data yet" when null (a team hasn't played any qual matches) — that
+    // should always sort to the bottom, not flip to the top when the sort direction is reversed.
+    const nullsLast = sortState.key === 'rank' || sortState.key === 'avgRp';
+    const aNull = av === null || av === undefined;
+    const bNull = bv === null || bv === undefined;
+    if (nullsLast && (aNull || bNull)) {
+      if (aNull && bNull) return 0;
+      return aNull ? 1 : -1;
     }
     let cmp;
     if (typeof av === 'string' || typeof bv === 'string') {
       cmp = String(av).localeCompare(String(bv));
     } else {
-      const an = (av === null || av === undefined) ? -Infinity : av;
-      const bn = (bv === null || bv === undefined) ? -Infinity : bv;
+      const an = aNull ? -Infinity : av;
+      const bn = bNull ? -Infinity : bv;
       cmp = an - bn;
     }
     return sortState.dir === 'desc' ? -cmp : cmp;
@@ -259,25 +394,31 @@ function renderTable() {
   const fmt = v => v === null || v === undefined ? '—' : v.toFixed(2);
   tbody.innerHTML = sorted.map(r => {
     const st = getRowStrength(r);
+    const pr = getRowPredicted(r);
+    const prKnown = (pr.w + pr.l + pr.t) > 0;
+    const arKnown = (r.actualWins + r.actualLosses + r.actualTies) > 0;
     const expanded = expandedTeams.has(r.team);
     const arrow = expanded ? '▾' : '▸';
     const mainRow = `<tr>
     <td class="num">${r.rank === null ? '—' : r.rank}</td>
+    <td class="num">${fmt(r.avgRp)}</td>
     <td class="teamCell" onclick="toggleExpand(${r.team})"><span class="expandArrow">${arrow}</span>${r.team}</td>
     <td class="teamCell" onclick="toggleExpand(${r.team})"><strong>${r.name}</strong></td>
     <td class="num">${fmt(r.oprPrior)}${r.priorFallback ? '*' : ''}</td>
     <td class="num">${fmt(r.oprClaude)}</td>
+    <td class="num col-ccwm">${r.ccwm === null ? '—' : (r.ccwm > 0 ? '+' : '') + r.ccwm.toFixed(2)}</td>
     <td class="num col-ftcscout">${fmt(r.oprFtcscout)}</td>
     <td class="num">${fmt(r.oprCurrent)}</td>
-    <td class="num">${fmt(st.strengthOpp)}${currentStrengthMode() === 'prior' && r.priorFallback ? '*' : ''}</td>
-    <td class="num">${fmt(st.strengthPartner)}${currentStrengthMode() === 'prior' && r.priorFallback ? '*' : ''}</td>
+    <td class="num">${fmt(st.strengthOpp)}</td>
+    <td class="num">${fmt(st.strengthPartner)}</td>
     <td class="num">${st.sos === null ? '—' : (st.sos > 0 ? '+' : '') + st.sos.toFixed(2)}</td>
-    <td class="num">${r.predictedWins}-${r.predictedLosses}${r.predictedTies ? '-' + r.predictedTies : ''}</td>
-    <td class="num">${r.actualWins}-${r.actualLosses}${r.actualTies ? '-' + r.actualTies : ''}</td>
+    <td class="num">${prKnown ? `${pr.w}-${pr.l}${pr.t ? '-' + pr.t : ''}` : '—'}</td>
+    <td class="num">${arKnown ? `${r.actualWins}-${r.actualLosses}${r.actualTies ? '-' + r.actualTies : ''}` : '—'}</td>
+    <td class="num">${r.scheduled}</td>
     <td class="num">${r.played}</td>
   </tr>`;
     const detailRow = expanded
-      ? `<tr class="detailRow"><td colspan="13">${buildMatchTable(teamMatches[r.team])}</td></tr>`
+      ? `<tr class="detailRow"><td colspan="16">${buildMatchTable(teamMatches[r.team], oprBySource[currentStrengthMode()])}${suppressAwardsInLog ? '' : buildAwardsHtml(teamAwards[r.team])}</td></tr>`
       : '';
     return mainRow + detailRow;
   }).join('');
@@ -289,12 +430,19 @@ function renderTable() {
   });
 
   updateFtcscoutVisibility();
+  updateCcwmVisibility();
 }
 
 function updateFtcscoutVisibility() {
   const show = document.getElementById('showFtcscoutCol').checked;
   document.querySelectorAll('.col-ftcscout').forEach(el => {
     el.style.display = show ? '' : 'none';
+  });
+}
+
+function updateCcwmVisibility() {
+  document.querySelectorAll('.col-ccwm').forEach(el => {
+    el.style.display = showCcwmCol ? '' : 'none';
   });
 }
 
@@ -322,8 +470,10 @@ document.getElementById('runBtn').addEventListener('click', async () => {
   document.getElementById('downloadRow').style.display = 'none';
   document.getElementById('displayOpts').style.display = 'none';
   document.getElementById('eventName').style.display = 'none';
+  document.getElementById('forecastBanner').style.display = 'none';
   expandedTeams = new Set();
   teamMatches = {};
+  teamAwards = {};
   const runBtn = document.getElementById('runBtn');
   runBtn.disabled = true;
   document.getElementById('spinner').classList.add('active');
@@ -331,10 +481,22 @@ document.getElementById('runBtn').addEventListener('click', async () => {
   const season = document.getElementById('season').value.trim();
   const code = document.getElementById('eventCode').value.trim().toUpperCase();
   const excludeSurrogate = document.getElementById('excludeSurrogate').checked;
+  const debugRaw = document.getElementById('debugMatchLimit').value.trim();
+  const debugLimit = debugRaw === '' ? null : Math.max(0, parseInt(debugRaw, 10) || 0);
+  // When debug mode is on, only quals matches numbered <= debugLimit count as "played" (and only if
+  // they actually were played in reality) — everything else, including all playoffs, is simulated as
+  // not-yet-played, letting you preview what the tool would've shown at that point in the event.
+  function effectivePlayed(m) {
+    if (debugLimit === null) return !!m.hasBeenPlayed;
+    if (m.tournamentLevel !== 'Quals') return false;
+    const num = m.matchNumber || m.id;
+    return !!m.hasBeenPlayed && typeof num === 'number' && num <= debugLimit;
+  }
 
   if (!season || !code) {
     log('Enter both a season and an event code.');
     runBtn.disabled = false;
+    document.getElementById('spinner').classList.remove('active');
     return;
   }
 
@@ -355,14 +517,34 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     const matches = await fetchJson(`https://api.ftcscout.org/rest/v1/events/${season}/${code}/matches`);
     log(`Got ${matches.length} total matches.`);
 
-    let used = matches.filter(m => m.hasBeenPlayed && m.tournamentLevel === 'Quals');
-    const allPlayed = matches.filter(m => m.hasBeenPlayed);
-    log(`Using ${used.length} qualification matches for OPR, strength of schedule, and predicted/actual record (playoff matches aren't included in these, since fixed elimination-bracket alliances break the OPR math). Match logs below include all ${allPlayed.length} played matches.`);
+    // The full quals schedule (played or not) drives the team roster, strength of schedule, and
+    // predicted record, so this tool works before any matches have been played. `playedQuals` (a
+    // subset) is what actually feeds OPR (Event) and Actual record, same as before.
+    const qualsMatches = matches.filter(m => m.tournamentLevel === 'Quals');
+    const playedQuals = qualsMatches.filter(effectivePlayed);
+    log(`${qualsMatches.length} qualification matches on the schedule, ${playedQuals.length} played so far.`);
+    if (debugLimit !== null) log(`DEBUG MODE: simulating only the first ${debugLimit} qual match(es) as played (and all playoffs as not yet played), regardless of the event's real progress.`);
 
-    const rows = [];
+    // True whenever fewer qual matches have been (effectively) played than are scheduled — whether
+    // that's because the real event is still mid-quals, or because Debug is simulating an earlier
+    // point in it. Playoffs haven't happened yet in either case (alliance selection only happens
+    // after quals finish), so the expanded match log leaves playoff rows out entirely, and Awards
+    // are hidden too, since they're handed out after playoffs conclude and don't exist yet either.
+    const qualsIncomplete = playedQuals.length < qualsMatches.length;
+    suppressAwardsInLog = qualsIncomplete;
+
+    const scheduleRows = [];
+    const oprRows = [];
+    // CCWM (Calculated Contribution to Win Margin) uses the exact same regression structure as OPR
+    // (same per-team credit rows, same solver), but solved against each alliance's actual score
+    // margin (own totalPoints minus opponent totalPoints, penalties included — margin is what
+    // actually decides who wins) instead of the alliance's raw score. It estimates how many points a
+    // team tends to contribute to their alliance's winning margin, capturing defense/disruption
+    // impact that OPR (a pure scoring measure) doesn't.
+    const ccwmRows = [];
     const teamIdSet = new Set();
     let surrogateAppearancesExcluded = 0;
-    for (const m of used) {
+    for (const m of qualsMatches) {
       const redEntries = m.teams.filter(t => t.alliance === 'Red');
       const blueEntries = m.teams.filter(t => t.alliance === 'Blue');
       const redTeams = redEntries.map(t => t.teamNumber);
@@ -371,41 +553,76 @@ document.getElementById('runBtn').addEventListener('click', async () => {
       const blueCredited = excludeSurrogate ? blueEntries.filter(t => !t.surrogate).map(t => t.teamNumber) : blueTeams;
       if (excludeSurrogate) surrogateAppearancesExcluded += (redTeams.length - redCredited.length) + (blueTeams.length - blueCredited.length);
 
-      if (redTeams.length && m.scores && m.scores.red) {
-        const s = m.scores.red;
-        const score = (typeof s.totalPointsNp === 'number') ? s.totalPointsNp : s.totalPoints;
-        if (redCredited.length) rows.push({ teams: redCredited, allTeams: redTeams, score, opponents: blueTeams });
+      if (redTeams.length) {
+        if (redCredited.length) scheduleRows.push({ teams: redCredited, allTeams: redTeams, opponents: blueTeams });
         redTeams.forEach(t => teamIdSet.add(t));
       }
-      if (blueTeams.length && m.scores && m.scores.blue) {
-        const s = m.scores.blue;
-        const score = (typeof s.totalPointsNp === 'number') ? s.totalPointsNp : s.totalPoints;
-        if (blueCredited.length) rows.push({ teams: blueCredited, allTeams: blueTeams, score, opponents: redTeams });
+      if (blueTeams.length) {
+        if (blueCredited.length) scheduleRows.push({ teams: blueCredited, allTeams: blueTeams, opponents: redTeams });
         blueTeams.forEach(t => teamIdSet.add(t));
+      }
+
+      if (effectivePlayed(m)) {
+        if (redTeams.length && m.scores && m.scores.red) {
+          const s = m.scores.red;
+          const score = (typeof s.totalPointsNp === 'number') ? s.totalPointsNp : s.totalPoints;
+          if (redCredited.length) oprRows.push({ teams: redCredited, allTeams: redTeams, score, opponents: blueTeams });
+        }
+        if (blueTeams.length && m.scores && m.scores.blue) {
+          const s = m.scores.blue;
+          const score = (typeof s.totalPointsNp === 'number') ? s.totalPointsNp : s.totalPoints;
+          if (blueCredited.length) oprRows.push({ teams: blueCredited, allTeams: blueTeams, score, opponents: redTeams });
+        }
+        const redActual = m.scores && m.scores.red && typeof m.scores.red.totalPoints === 'number' ? m.scores.red.totalPoints : null;
+        const blueActual = m.scores && m.scores.blue && typeof m.scores.blue.totalPoints === 'number' ? m.scores.blue.totalPoints : null;
+        if (redActual !== null && blueActual !== null) {
+          if (redCredited.length) ccwmRows.push({ teams: redCredited, score: redActual - blueActual });
+          if (blueCredited.length) ccwmRows.push({ teams: blueCredited, score: blueActual - redActual });
+        }
       }
     }
     const teamIds = [...teamIdSet].sort((a, b) => a - b);
-    if (excludeSurrogate) log(`Excluded ${surrogateAppearancesExcluded} surrogate team-match appearances from OPR, match count, predicted record, and actual record (per team, not per whole match).`);
-    log(`${teamIds.length} unique teams found. Solving OPR (Claude)...`);
+    if (excludeSurrogate) log(`Excluded ${surrogateAppearancesExcluded} surrogate team-match appearances (per team, not per whole match) from OPR, Scheduled/Played counts, Predicted record, and Actual record.`);
+    log(`${teamIds.length} unique teams found on the schedule. Solving OPR (Event) and CCWM from played matches...`);
 
-    const oprClaude = solveLeastSquares(rows, teamIds);
+    const oprClaude = solveLeastSquares(oprRows, teamIds);
+    const oprPlayCount = {};
+    teamIds.forEach(t => { oprPlayCount[t] = 0; });
+    oprRows.forEach(row => row.teams.forEach(t => { oprPlayCount[t] = (oprPlayCount[t] || 0) + 1; }));
+    teamIds.forEach(t => { if (!oprPlayCount[t]) oprClaude[t] = null; });
 
-    log('Fetching team names, ftcscout\'s own OPR, and official rank for this event...');
+    const ccwm = solveLeastSquares(ccwmRows, teamIds);
+    teamIds.forEach(t => { if (!oprPlayCount[t]) ccwm[t] = null; });
+
+    if (playedQuals.length === 0) {
+      document.getElementById('forecastBanner').style.display = 'block';
+      log('No matches have been played yet at this event — OPR (Event) and Actual record will stay blank. Strength of schedule and Predicted record are still fully computed from the posted schedule using Pre-event / End-of-Season OPR.');
+    }
+
+    log('Fetching team names and ftcscout\'s own OPR...');
     const names = {};
     const oprFtcscout = {};
-    const officialRank = {};
     try {
       const eventTeams = await fetchJson(`https://api.ftcscout.org/rest/v1/events/${season}/${code}/teams`);
       for (const et of eventTeams) {
         if (et.stats && et.stats.opr && typeof et.stats.opr.totalPointsNp === 'number') {
           oprFtcscout[et.teamNumber] = et.stats.opr.totalPointsNp;
         }
-        if (et.stats && typeof et.stats.rank === 'number') {
-          officialRank[et.teamNumber] = et.stats.rank;
-        }
       }
     } catch (e) {
-      log('Could not fetch ftcscout\'s per-event OPR/rank: ' + e.message);
+      log('Could not fetch ftcscout\'s per-event OPR: ' + e.message);
+    }
+
+    log('Fetching event awards...');
+    teamIds.forEach(t => { teamAwards[t] = []; });
+    try {
+      const awardsData = await fetchJson(`https://api.ftcscout.org/rest/v1/events/${season}/${code}/awards`);
+      awardsData.forEach(a => {
+        if (!teamAwards[a.teamNumber]) teamAwards[a.teamNumber] = [];
+        teamAwards[a.teamNumber].push(a);
+      });
+    } catch (e) {
+      log('Could not fetch event awards: ' + e.message);
     }
 
     log('Fetching each team\'s current season-wide OPR, and season event history...');
@@ -425,55 +642,63 @@ document.getElementById('runBtn').addEventListener('click', async () => {
       } catch (e) { teamEventHistory[t] = []; }
     }));
 
-    // Build a per-team match log (for the expandable match detail rows). Includes all played
-    // matches (quals + playoffs), even though OPR/strength/predicted/actual only use quals.
+    // Build a per-team match log (for the expandable match detail rows). Includes every match on
+    // the schedule — quals + playoffs, played or not — so a team's full slate is visible even before
+    // the event starts. Unplayed matches show "Upcoming" instead of a result.
     const teamLabel = t => `${t}${names[t] ? ' ' + names[t] : ''}`;
     // Ranking points: 3 for a qual win, 1 for a tie, 0 for a loss, plus 1 RP each for any bonus
     // flags on the alliance's score (verified against ftcscout's own published per-team RP average).
-    // Playoff matches don't award ranking points, so rp is left null for those.
-    function rpFor(level, scoreObj, ownScore, oppScore) {
-      if (level !== 'Quals' || ownScore === null || oppScore === null) return null;
+    // Playoff matches, and matches that haven't been played yet, don't have an rp value.
+    function rpFor(level, played, scoreObj, ownScore, oppScore) {
+      if (!played || level !== 'Quals' || ownScore === null || oppScore === null) return null;
       const winRp = ownScore > oppScore ? 3 : (ownScore < oppScore ? 0 : 1);
       const bonusRp = (scoreObj.movementRp ? 1 : 0) + (scoreObj.goalRp ? 1 : 0) + (scoreObj.patternRp ? 1 : 0);
       return winRp + bonusRp;
     }
     teamIds.forEach(t => { teamMatches[t] = []; });
-    for (const m of allPlayed) {
+    for (const m of matches) {
+      if (qualsIncomplete && m.tournamentLevel !== 'Quals') continue;
+      const played = effectivePlayed(m);
       const redEntries = m.teams.filter(t => t.alliance === 'Red');
       const blueEntries = m.teams.filter(t => t.alliance === 'Blue');
       const redTeams = redEntries.map(t => t.teamNumber);
       const blueTeams = blueEntries.map(t => t.teamNumber);
-      const redScore = m.scores && m.scores.red && typeof m.scores.red.totalPoints === 'number' ? m.scores.red.totalPoints : null;
-      const blueScore = m.scores && m.scores.blue && typeof m.scores.blue.totalPoints === 'number' ? m.scores.blue.totalPoints : null;
+      const redScore = played && m.scores && m.scores.red && typeof m.scores.red.totalPoints === 'number' ? m.scores.red.totalPoints : null;
+      const blueScore = played && m.scores && m.scores.blue && typeof m.scores.blue.totalPoints === 'number' ? m.scores.blue.totalPoints : null;
       const matchLabel = m.matchNumber || m.id;
       const addEntries = (entries, ownTeams, oppTeams, ownScore, oppScore, scoreObj) => {
         entries.forEach(e => {
           const t = e.teamNumber;
           if (!teamMatches[t]) return;
           const partners = ownTeams.filter(x => x !== t);
-          let result;
-          if (ownScore === null || oppScore === null) result = '—';
-          else result = ownScore > oppScore ? 'W' : (ownScore < oppScore ? 'L' : 'T');
+          let result = '—';
+          if (played && ownScore !== null && oppScore !== null) {
+            result = ownScore > oppScore ? 'W' : (ownScore < oppScore ? 'L' : 'T');
+          }
           teamMatches[t].push({
             match: matchLabel,
             level: m.tournamentLevel,
             alliance: e.alliance,
             partnersDisplay: partners.length ? partners.map(teamLabel).join(', ') : '—',
             opponentsDisplay: oppTeams.length ? oppTeams.map(teamLabel).join(', ') : '—',
+            ownAllianceTeams: ownTeams,
+            opponentsTeams: oppTeams,
             ownScore,
             oppScore,
             result,
-            rp: rpFor(m.tournamentLevel, scoreObj, ownScore, oppScore),
+            played,
+            rp: rpFor(m.tournamentLevel, played, scoreObj || {}, ownScore, oppScore),
             surrogate: !!e.surrogate
           });
         });
       };
-      if (m.scores && m.scores.red) addEntries(redEntries, redTeams, blueTeams, redScore, blueScore, m.scores.red);
-      if (m.scores && m.scores.blue) addEntries(blueEntries, blueTeams, redTeams, blueScore, redScore, m.scores.blue);
+      addEntries(redEntries, redTeams, blueTeams, redScore, blueScore, m.scores && m.scores.red);
+      addEntries(blueEntries, blueTeams, redTeams, blueScore, redScore, m.scores && m.scores.blue);
     }
     teamIds.forEach(t => teamMatches[t].sort((a, b) => (typeof a.match === 'number' && typeof b.match === 'number') ? a.match - b.match : String(a.match).localeCompare(String(b.match))));
 
     // Figure out, for each team, their best np OPR from an event earlier this season than the current one.
+    // This is independent of whether the current event has started yet, so it's always available for forecasting.
     log('Looking up each team\'s earlier events this season, to find their best prior OPR...');
     const priorBestOpr = {};
     const priorFallback = {};
@@ -502,85 +727,118 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         if (best !== null) {
           priorBestOpr[t] = best;
           priorFallback[t] = false;
-        } else {
+        } else if (oprClaude[t] !== null) {
           priorBestOpr[t] = oprClaude[t];
           priorFallback[t] = true;
+        } else {
+          priorBestOpr[t] = null;
+          priorFallback[t] = false;
         }
       });
     } else {
-      log('No event start date available; "highest OPR earlier this season" will fall back to this event\'s OPR for all teams.');
-      teamIds.forEach(t => { priorBestOpr[t] = oprClaude[t]; priorFallback[t] = true; });
+      log('No event start date available; "Pre-event OPR" will fall back to this event\'s OPR (once played) for all teams.');
+      teamIds.forEach(t => { priorBestOpr[t] = oprClaude[t]; priorFallback[t] = oprClaude[t] !== null; });
     }
 
-    log('Computing strength of opponents, strength of partner, SOS (pre-event, event, and current OPR)...');
-    const strengthsEvent = computeStrengths(rows, teamIds, oprClaude);
-    const strengthsPrior = computeStrengths(rows, teamIds, priorBestOpr);
-    const strengthsCurrent = computeStrengths(rows, teamIds, oprCurrent);
+    log('Computing strength of opponents, strength of partner, SOS, and predicted record (Pre-event, Event, and End-of-Season OPR) from the full posted schedule...');
+    const strengthsEvent = computeStrengths(scheduleRows, teamIds, oprClaude);
+    const strengthsPrior = computeStrengths(scheduleRows, teamIds, priorBestOpr);
+    const strengthsCurrent = computeStrengths(scheduleRows, teamIds, oprCurrent);
+    const predictedEvent = computePredicted(scheduleRows, teamIds, oprClaude);
+    const predictedPrior = computePredicted(scheduleRows, teamIds, priorBestOpr);
+    const predictedCurrent = computePredicted(scheduleRows, teamIds, oprCurrent);
 
-    log('Computing predicted record (from OPR) and actual record (from real match outcomes)...');
-    const predW = {}, predL = {}, predT = {}, played = {};
-    teamIds.forEach(t => { predW[t] = 0; predL[t] = 0; predT[t] = 0; played[t] = 0; });
-    for (const row of rows) {
-      const oppTotal = row.opponents.reduce((s, t) => s + (oprClaude[t] || 0), 0);
-      const ownAllianceTotal = (row.allTeams || row.teams).reduce((s, x) => s + (oprClaude[x] || 0), 0);
-      for (const t of row.teams) {
-        played[t] += 1;
-        if (ownAllianceTotal > oppTotal) predW[t] += 1;
-        else if (ownAllianceTotal < oppTotal) predL[t] += 1;
-        else predT[t] += 1;
-      }
-    }
-
-    const actW = {}, actL = {}, actT = {};
-    teamIds.forEach(t => { actW[t] = 0; actL[t] = 0; actT[t] = 0; });
-    for (const m of used) {
+    log('Computing actual record, average RP, and average alliance score from matches played so far...');
+    const actW = {}, actL = {}, actT = {}, rpSum = {}, allianceScoreSum = {};
+    teamIds.forEach(t => { actW[t] = 0; actL[t] = 0; actT[t] = 0; rpSum[t] = 0; allianceScoreSum[t] = 0; });
+    for (const m of playedQuals) {
       const redEntries = m.teams.filter(t => t.alliance === 'Red');
       const blueEntries = m.teams.filter(t => t.alliance === 'Blue');
       if (!m.scores || !m.scores.red || !m.scores.blue) continue;
       const rs = m.scores.red.totalPoints, bs = m.scores.blue.totalPoints;
       if (typeof rs !== 'number' || typeof bs !== 'number') continue;
       const redWin = rs > bs, blueWin = bs > rs;
+      const redRp = rpFor('Quals', true, m.scores.red, rs, bs) || 0;
+      const blueRp = rpFor('Quals', true, m.scores.blue, bs, rs) || 0;
       for (const e of redEntries) {
         if (excludeSurrogate && e.surrogate) continue;
         const t = e.teamNumber;
         if (redWin) actW[t]++; else if (blueWin) actL[t]++; else actT[t]++;
+        rpSum[t] += redRp;
+        allianceScoreSum[t] += rs;
       }
       for (const e of blueEntries) {
         if (excludeSurrogate && e.surrogate) continue;
         const t = e.teamNumber;
         if (blueWin) actW[t]++; else if (redWin) actL[t]++; else actT[t]++;
+        rpSum[t] += blueRp;
+        allianceScoreSum[t] += bs;
       }
     }
 
+    const scheduledCount = {}, playedCount = {};
+    teamIds.forEach(t => { scheduledCount[t] = 0; playedCount[t] = 0; });
+    scheduleRows.forEach(row => row.teams.forEach(t => { scheduledCount[t] += 1; }));
+    oprRows.forEach(row => row.teams.forEach(t => { playedCount[t] += 1; }));
+
+    // Average RP per qual match played (respecting the same surrogate-exclusion and debug-limit
+    // rules as everything else), and average alliance score per match played (used only as a
+    // tiebreaker below). Rank is derived from these, rather than pulled from ftcscout's own rank
+    // stat — that stat always reflects the event's real, final ranking, which isn't accurate once
+    // you're simulating an earlier point in the event via the debug field above, or forecasting
+    // before any matches have been played at all.
+    const avgRp = {}, avgAllianceScore = {};
+    teamIds.forEach(t => {
+      avgRp[t] = playedCount[t] ? round2(rpSum[t] / playedCount[t]) : null;
+      avgAllianceScore[t] = playedCount[t] ? round2(allianceScoreSum[t] / playedCount[t]) : null;
+    });
+    const numOrLast = v => typeof v === 'number' ? v : -Infinity;
+    // Ranking order: teams that have played at least one qual match always outrank teams that
+    // haven't. Within the "has played" group: average RP (desc), then average alliance score (desc)
+    // as a tiebreaker, then Pre-event OPR (desc) as a final tiebreaker. Within the "hasn't played"
+    // group (including the case where NO matches at the event have been played yet, i.e. pure
+    // pre-match forecasting): rank by Pre-event OPR (desc) alone, since RP and alliance score don't
+    // exist yet. Team number is the last-resort tiebreak for full determinism.
+    const rankOrder = [...teamIds].sort((a, b) => {
+      const aHas = avgRp[a] !== null, bHas = avgRp[b] !== null;
+      if (aHas !== bHas) return aHas ? -1 : 1;
+      if (aHas) {
+        if (avgRp[b] !== avgRp[a]) return avgRp[b] - avgRp[a];
+        if (avgAllianceScore[b] !== avgAllianceScore[a]) return numOrLast(avgAllianceScore[b]) - numOrLast(avgAllianceScore[a]);
+      }
+      const oprDiff = numOrLast(priorBestOpr[b]) - numOrLast(priorBestOpr[a]);
+      return oprDiff !== 0 ? oprDiff : a - b;
+    });
+    const rankByTeam = {};
+    rankOrder.forEach((t, i) => { rankByTeam[t] = i + 1; });
+
+    // Used by the expanded match log to predict scores for matches that haven't been played yet,
+    // under whichever OPR source the "Strength Calc OPRs" toggle currently has selected.
+    oprBySource = { event: oprClaude, prior: priorBestOpr, current: oprCurrent };
+
     results = teamIds.map(t => {
-      const oc = Math.round(oprClaude[t] * 100) / 100;
-      const of_ = (t in oprFtcscout) ? Math.round(oprFtcscout[t] * 100) / 100 : null;
+      const of_ = (t in oprFtcscout) ? round2(oprFtcscout[t]) : null;
       const se = strengthsEvent[t], sp = strengthsPrior[t], sc = strengthsCurrent[t];
       return {
         team: t,
-        rank: (t in officialRank) ? officialRank[t] : null,
+        rank: (t in rankByTeam) ? rankByTeam[t] : null,
+        avgRp: avgRp[t],
         name: names[t],
-        oprPrior: (t in priorBestOpr) ? Math.round(priorBestOpr[t] * 100) / 100 : null,
-        oprClaude: oc,
+        oprPrior: round2(priorBestOpr[t]),
+        oprClaude: round2(oprClaude[t]),
+        ccwm: round2(ccwm[t]),
         oprFtcscout: of_,
-        oprCurrent: (t in oprCurrent) ? Math.round(oprCurrent[t] * 100) / 100 : null,
-        strengthOppEvent: se.strengthOpp,
-        strengthPartnerEvent: se.strengthPartner,
-        sosEvent: se.sos,
-        strengthOppPrior: sp.strengthOpp,
-        strengthPartnerPrior: sp.strengthPartner,
-        sosPrior: sp.sos,
-        strengthOppCurrent: sc.strengthOpp,
-        strengthPartnerCurrent: sc.strengthPartner,
-        sosCurrent: sc.sos,
+        oprCurrent: (t in oprCurrent) ? round2(oprCurrent[t]) : null,
+        strengthOppEvent: se.strengthOpp, strengthPartnerEvent: se.strengthPartner, sosEvent: se.sos,
+        strengthOppPrior: sp.strengthOpp, strengthPartnerPrior: sp.strengthPartner, sosPrior: sp.sos,
+        strengthOppCurrent: sc.strengthOpp, strengthPartnerCurrent: sc.strengthPartner, sosCurrent: sc.sos,
         priorFallback: !!priorFallback[t],
-        predictedWins: predW[t],
-        predictedLosses: predL[t],
-        predictedTies: predT[t],
-        actualWins: actW[t],
-        actualLosses: actL[t],
-        actualTies: actT[t],
-        played: played[t]
+        predictedWinsEvent: predictedEvent.w[t], predictedLossesEvent: predictedEvent.l[t], predictedTiesEvent: predictedEvent.t2[t],
+        predictedWinsPrior: predictedPrior.w[t], predictedLossesPrior: predictedPrior.l[t], predictedTiesPrior: predictedPrior.t2[t],
+        predictedWinsCurrent: predictedCurrent.w[t], predictedLossesCurrent: predictedCurrent.l[t], predictedTiesCurrent: predictedCurrent.t2[t],
+        actualWins: actW[t], actualLosses: actL[t], actualTies: actT[t],
+        scheduled: scheduledCount[t],
+        played: playedCount[t]
       };
     });
 
@@ -593,48 +851,50 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     document.getElementById('displayOpts').style.display = '';
 
     const fallbackCount = teamIds.filter(t => priorFallback[t]).length;
-    if (fallbackCount) log(`${fallbackCount} team(s) had no earlier event this season, so their "prior OPR" falls back to this event's OPR (marked with * in that mode).`);
+    if (fallbackCount) log(`${fallbackCount} team(s) had no earlier event this season, so their "Pre-event OPR" falls back to this event's OPR (marked with * once it exists).`);
     log('Done.');
 
     document.getElementById('downloadBtn').onclick = () => {
       const mode = currentStrengthMode();
       const modeLabel = mode === 'prior' ? 'pre-event OPR' : (mode === 'current' ? 'current OPR' : 'event OPR');
-      const strengthOppVal = mode === 'prior' ? 'strengthOppPrior' : (mode === 'current' ? 'strengthOppCurrent' : 'strengthOppEvent');
-      const strengthPartnerVal = mode === 'prior' ? 'strengthPartnerPrior' : (mode === 'current' ? 'strengthPartnerCurrent' : 'strengthPartnerEvent');
-      const sosVal = mode === 'prior' ? 'sosPrior' : (mode === 'current' ? 'sosCurrent' : 'sosEvent');
+      const suffix = mode === 'prior' ? 'Prior' : (mode === 'current' ? 'Current' : 'Event');
       const wb = XLSX.utils.book_new();
       const teamSheet = XLSX.utils.json_to_sheet(results.map(r => ({
-        Rank: r.rank, Team: r.team, Name: r.name,
+        Rank: r.rank, RP: r.avgRp, Team: r.team, Name: r.name,
         'OPR (Pre-event)': r.oprPrior,
         'OPR (Event)': r.oprClaude,
+        ...(showCcwmCol ? { CCWM: r.ccwm } : {}),
         'OPR (ftcscout)': r.oprFtcscout,
         'OPR (current)': r.oprCurrent,
-        [`Strength of opponents (${modeLabel})`]: r[strengthOppVal],
-        [`Strength of partner (${modeLabel})`]: r[strengthPartnerVal],
-        SOS: r[sosVal],
+        [`Strength of opponents (${modeLabel})`]: r[`strengthOpp${suffix}`],
+        [`Strength of partner (${modeLabel})`]: r[`strengthPartner${suffix}`],
+        SOS: r[`sos${suffix}`],
         'Used prior-OPR fallback': r.priorFallback ? 'yes' : 'no',
-        'Predicted wins': r.predictedWins,
-        'Predicted losses': r.predictedLosses,
-        'Predicted ties': r.predictedTies,
+        'Predicted wins': r[`predictedWins${suffix}`],
+        'Predicted losses': r[`predictedLosses${suffix}`],
+        'Predicted ties': r[`predictedTies${suffix}`],
         'Actual wins': r.actualWins,
         'Actual losses': r.actualLosses,
         'Actual ties': r.actualTies,
-        'Matches Used': r.played
+        Scheduled: r.scheduled,
+        Played: r.played
       })));
       XLSX.utils.book_append_sheet(wb, teamSheet, 'Teams');
 
-      const matchRows = used.map(m => {
+      const matchRows = qualsMatches.map(m => {
+        const played = effectivePlayed(m);
         const red = m.teams.filter(t => t.alliance === 'Red').map(t => t.teamNumber);
         const blue = m.teams.filter(t => t.alliance === 'Blue').map(t => t.teamNumber);
         return {
           Match: m.id,
           Level: m.tournamentLevel,
+          Played: played ? 'yes' : 'no',
           Red1: red[0] || '', Red2: red[1] || '',
           Blue1: blue[0] || '', Blue2: blue[1] || '',
-          'Red Score (np)': m.scores.red.totalPointsNp ?? m.scores.red.totalPoints,
-          'Blue Score (np)': m.scores.blue.totalPointsNp ?? m.scores.blue.totalPoints,
-          'Red Score (actual)': m.scores.red.totalPoints,
-          'Blue Score (actual)': m.scores.blue.totalPoints
+          'Red Score (np)': played && m.scores ? (m.scores.red.totalPointsNp ?? m.scores.red.totalPoints) : '',
+          'Blue Score (np)': played && m.scores ? (m.scores.blue.totalPointsNp ?? m.scores.blue.totalPoints) : '',
+          'Red Score (actual)': played && m.scores ? m.scores.red.totalPoints : '',
+          'Blue Score (actual)': played && m.scores ? m.scores.blue.totalPoints : ''
         };
       });
       const matchSheet = XLSX.utils.json_to_sheet(matchRows);
@@ -642,7 +902,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
 
       XLSX.writeFile(wb, `${code}_OPR_SOS.xlsx`);
     };
-    document.getElementById('downloadRow').style.display = '';
+    document.getElementById('downloadRow').style.display = 'block';
 
   } catch (err) {
     log('Error: ' + err.message);
