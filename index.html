@@ -106,20 +106,21 @@
 <table id="resultsTable" style="display:none">
   <thead>
     <tr>
-      <th class="num sortable" data-key="rank">Rank <span class="arrow"></span></th>
+      <th class="num"></th>
+      <th class="num sortable" data-key="rank">RP Rank <span class="arrow"></span></th>
       <th class="num sortable" data-key="avgRp">RP <span class="arrow"></span></th>
       <th class="sortable" data-key="team">Team <span class="arrow"></span></th>
       <th class="sortable" data-key="name">Name <span class="arrow"></span></th>
-      <th class="num sortable" data-key="oprPrior">OPR (Pre-event) <span class="arrow"></span></th>
+      <th class="num sortable" data-key="oprPrior">OPR (Pre-Event) <span class="arrow"></span></th>
       <th class="num sortable" data-key="oprCalc">OPR (Event) <span class="arrow"></span></th>
       <th class="num sortable col-ccwm" data-key="ccwm">CCWM <span class="arrow"></span></th>
-      <th class="num sortable col-ftcscout" data-key="oprFtcscout">OPR (ftcscout) <span class="arrow"></span></th>
-      <th class="num sortable" data-key="oprCurrent">OPR (current) <span class="arrow"></span></th>
-      <th class="num sortable" data-key="strengthOpp">Strength of opponents <span class="arrow"></span></th>
-      <th class="num sortable" data-key="strengthPartner">Strength of partner <span class="arrow"></span></th>
-      <th class="num sortable" data-key="sos">SOS <span class="arrow"></span></th>
-      <th class="num sortable" data-key="predictedWins">Predicted record <span class="arrow"></span></th>
-      <th class="num sortable" data-key="actualWins">Actual record <span class="arrow"></span></th>
+      <th class="num sortable col-ftcscout" data-key="oprFtcscout">OPR (FTCScout) <span class="arrow"></span></th>
+      <th class="num sortable" data-key="oprCurrent">OPR (Current) <span class="arrow"></span></th>
+      <th class="num sortable" data-key="strengthOpp">Strength of Opponents <span class="arrow"></span></th>
+      <th class="num sortable" data-key="strengthPartner">Strength of Partner <span class="arrow"></span></th>
+      <th class="num sortable" data-key="sos">Strength of Schedule <span class="arrow"></span></th>
+      <th class="num sortable" data-key="predictedWins">Predicted Record <span class="arrow"></span></th>
+      <th class="num sortable" data-key="actualWins">Actual Record <span class="arrow"></span></th>
       <th class="num sortable" data-key="played">Played <span class="arrow"></span></th>
     </tr>
   </thead>
@@ -166,13 +167,13 @@ let debugFlagActive = false;
 
   const parts = [];
   parts.push(`RP = average ranking points per qual match played (tie 1, loss 0; win value and bonus RP are auto-calibrated each run against ftcscout's own averages, since they change by season); blank until a team has played.`);
-  parts.push(`Rank = highest RP first, ties broken by ftcscout's own official tiebreakers once the event is fully complete (or by avg. alliance score during a partial/simulated view), then Pre-event OPR; teams with no matches played rank last, by Pre-event OPR alone — a pure pre-event forecast before play starts${debugOn ? ' (or the debug-simulated subset)' : ''}.`);
+  parts.push(`RP Rank = highest RP first, ties broken by ftcscout's own official tiebreakers once the event is fully complete (or by avg. alliance score during a partial/simulated view), then Pre-event OPR; teams with no matches played rank last, by Pre-event OPR alone — a pure pre-event forecast before play starts${debugOn ? ' (or the debug-simulated subset)' : ''}.`);
   parts.push(`OPR (Pre-event) = best OPR from an earlier event this season (falls back to this event's OPR if none, marked *). OPR (Event) = OPR from this event's played matches only; blank until played.`);
   if (showCcwmCol) {
     parts.push(`CCWM = same regression as OPR (Event), solved on score margin instead of raw score — estimates contribution to winning margin (captures defense), not just scoring; blank until played.`);
   }
-  parts.push(`OPR (current) = ftcscout's season-wide rating. Strength of opponents/partner = average OPR of scheduled opponents/partner; SOS = opponents − partner.`);
-  parts.push(`Strength/SOS/Predicted record use the full schedule and whichever OPR source is selected, so they work pre-match too. Predicted record = W-L-toss-ups; margins under 10 points count as a toss-up, not a call.`);
+  parts.push(`OPR (current) = ftcscout's season-wide rating. Strength of opponents/partner = average OPR of scheduled opponents/partner; Strength of Schedule = opponents − partner.`);
+  parts.push(`Strength of Schedule/Predicted record use the full schedule and whichever OPR source is selected, so they work pre-match too. Predicted record = W-L-toss-ups; margins under 10 points count as a toss-up, not a call.`);
   parts.push(`Actual record = real win-loss-tie record so far. Played = matches played/scheduled (e.g. "4/5").`);
   parts.push(`Excluding surrogates skips a match only for the surrogate team(s), not their partner or opponents.`);
   parts.push(`Expand a team for its match log (plus awards); unplayed matches show a predicted score/result ("pred."), "?" if the margin's under 10 points, or "Upcoming" if OPR isn't known yet. The small bar next to a predicted result is a rough confidence read (a gut-check, not a fitted model) — fuller and more solid-colored means a more lopsided, confident call.`);
@@ -439,7 +440,7 @@ function renderTable() {
   });
   const tbody = document.getElementById('resultsBody');
   const fmt = v => v === null || v === undefined ? '—' : v.toFixed(2);
-  tbody.innerHTML = sorted.map(r => {
+  tbody.innerHTML = sorted.map((r, i) => {
     const st = getRowStrength(r);
     const pr = getRowPredicted(r);
     const prKnown = (pr.w + pr.l + pr.toss) > 0;
@@ -447,6 +448,7 @@ function renderTable() {
     const expanded = expandedTeams.has(r.team);
     const arrow = expanded ? '▾' : '▸';
     const mainRow = `<tr>
+    <td class="num">${i + 1}</td>
     <td class="num">${r.rank === null ? '—' : r.rank}</td>
     <td class="num">${fmt(r.avgRp)}</td>
     <td class="teamCell" onclick="toggleExpand(${r.team})"><span class="expandArrow">${arrow}</span>${r.team}</td>
@@ -464,7 +466,7 @@ function renderTable() {
     <td class="num">${r.scheduled ? `${r.played}/${r.scheduled}` : '—'}</td>
   </tr>`;
     const detailRow = expanded
-      ? `<tr class="detailRow"><td colspan="15">${buildMatchTable(teamMatches[r.team], oprBySource[currentStrengthMode()])}${suppressAwardsInLog ? '' : buildAwardsHtml(teamAwards[r.team])}</td></tr>`
+      ? `<tr class="detailRow"><td colspan="16">${buildMatchTable(teamMatches[r.team], oprBySource[currentStrengthMode()])}${suppressAwardsInLog ? '' : buildAwardsHtml(teamAwards[r.team])}</td></tr>`
       : '';
     return mainRow + detailRow;
   }).join('');
