@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <title>FTC Event Strength of Schedule</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- GoatCounter: privacy-friendly, cookieless analytics (page views, unique visitors, country). -->
+<script data-goatcounter="https://notfastnotfurious.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 <style>
   body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 1120px; margin: 40px auto; padding: 0 20px; color: #222; }
   h1 { font-size: 22px; font-weight: 600; }
@@ -139,6 +141,17 @@ const logEl = document.getElementById('log');
 function log(msg) { logEl.textContent += (logEl.textContent ? '\n' : '') + msg; }
 function clearLog() { logEl.textContent = ''; }
 function round2(v) { return v === null || v === undefined ? null : Math.round(v * 100) / 100; }
+
+// Fires a GoatCounter custom event, if GoatCounter loaded successfully (it won't if blocked by an
+// adblocker) — wrapped so analytics never interferes with the tool itself if it's missing or fails
+// for any reason.
+function trackEvent(path, title) {
+  try {
+    if (window.goatcounter && typeof window.goatcounter.count === 'function') {
+      window.goatcounter.count({ path, title, event: true });
+    }
+  } catch (e) { /* analytics should never break the tool */ }
+}
 
 let results = [];
 let sortState = { key: 'rank', dir: 'asc' };
@@ -529,6 +542,13 @@ document.getElementById('runBtn').addEventListener('click', async () => {
   const season = document.getElementById('season').value.trim();
   const code = document.getElementById('eventCode').value.trim().toUpperCase();
   const excludeSurrogate = document.getElementById('excludeSurrogate').checked;
+
+  // Usage tracking: how often the button gets pressed, which season/event people look up, and
+  // which Strength Calc OPR source they have selected. Fired on every click attempt (even with
+  // blank/invalid fields), since that's still useful signal about how the tool's being used.
+  trackEvent('run-clicked', 'Fetch and compute clicked');
+  if (season || code) trackEvent(`run-event-${season || 'noseason'}-${code || 'nocode'}`, `Run: ${season} ${code}`);
+  trackEvent(`strength-mode-${currentStrengthMode()}`, `Strength Calc OPR: ${currentStrengthMode()}`);
   const debugRaw = document.getElementById('debugMatchLimit').value.trim();
   const debugLimit = debugRaw === '' ? null : Math.max(0, parseInt(debugRaw, 10) || 0);
   // When debug mode is on, only quals matches numbered <= debugLimit count as "played" (and only if
