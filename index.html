@@ -63,6 +63,11 @@
   .awardsBlock strong { display: block; color: #888; font-weight: 500; margin-bottom: 4px; }
   .awardsBlock ul { margin: 0; padding-left: 18px; }
   .debugField { border: 1px dashed #ccc !important; background: #fffdf5; }
+  tr.finalsRedRow td { background: #fdecea; }
+  tr.finalsBlueRow td { background: #e8f0fe; }
+  tr.finalsChampionRow td { background: #fffaeb; }
+  tr.finalsAllianceBandA td { background: #f4f4f4; }
+  tr.finalsAllianceBandB td { background: #ffffff; }
   .spinner { display: none; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: #222; border-radius: 50%; margin-left: 10px; vertical-align: middle; animation: spin 0.7s linear infinite; }
   .spinner.active { display: inline-block; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -184,6 +189,7 @@ let expandedTeams = new Set();
 let oprBySource = { event: {}, prior: {}, current: {} };
 let suppressAwardsInLog = false;
 let showCcwmCol = false;
+let finalsAllianceCount = 0;
 let debugFlagActive = false;
 
 // The debug field is a testing aid, not something a normal visitor should stumble onto — it only
@@ -451,13 +457,22 @@ function renderTable() {
       av = getRowStrength(a)[sortState.key];
       bv = getRowStrength(b)[sortState.key];
     } else if (sortState.key === 'predictedWins') {
-      av = getRowPredicted(a).w; bv = getRowPredicted(b).w;
+      // Record columns sort by wins first, then by fewer losses (so e.g. 3-1-1 ranks ahead of 3-2 —
+      // same win count, but the tie beats a loss). Folding losses into the wins value as a decimal
+      // keeps this a single numeric comparison, reusing the exact same comparator logic below.
+      const pa = getRowPredicted(a), pb = getRowPredicted(b);
+      av = (pa.w == null) ? null : pa.w - pa.l / 1000;
+      bv = (pb.w == null) ? null : pb.w - pb.l / 1000;
+    } else if (sortState.key === 'actualWins') {
+      av = (a.actualWins == null) ? null : a.actualWins - a.actualLosses / 1000;
+      bv = (b.actualWins == null) ? null : b.actualWins - b.actualLosses / 1000;
     } else {
       av = a[sortState.key]; bv = b[sortState.key];
     }
     // Rank and RP are both "no data yet" when null (a team hasn't played any qual matches) — that
     // should always sort to the bottom, not flip to the top when the sort direction is reversed.
-    const nullsLast = sortState.key === 'rank' || sortState.key === 'avgRp';
+    // Record columns get the same treatment when a team has no predicted/actual games at all.
+    const nullsLast = sortState.key === 'rank' || sortState.key === 'avgRp' || sortState.key === 'predictedWins' || sortState.key === 'actualWins';
     const aNull = av === null || av === undefined;
     const bNull = bv === null || bv === undefined;
     if (nullsLast && (aNull || bNull)) {
@@ -476,6 +491,16 @@ function renderTable() {
   });
   const tbody = document.getElementById('resultsBody');
   const fmt = v => v === null || v === undefined ? '—' : v.toFixed(2);
+  // Simple best-of-N (2 alliances): reuse the original red/blue highlight so that already-verified
+  // look stays exactly the same. Full bracket (3+ alliances): gold-highlight just the champion, and
+  // give the rest faint alternating banding so teammates visually group together without implying
+  // rank through color (picking 6+ distinct, readable colors wasn't practical).
+  function finalsRowClassFor(fa) {
+    if (!fa) return '';
+    if (finalsAllianceCount === 2) return fa.index === 0 ? 'finalsRedRow' : 'finalsBlueRow';
+    if (fa.isChampion) return 'finalsChampionRow';
+    return fa.index % 2 === 0 ? 'finalsAllianceBandA' : 'finalsAllianceBandB';
+  }
   tbody.innerHTML = sorted.map((r, i) => {
     const st = getRowStrength(r);
     const pr = getRowPredicted(r);
@@ -483,7 +508,8 @@ function renderTable() {
     const arKnown = (r.actualWins + r.actualLosses + r.actualTies) > 0;
     const expanded = expandedTeams.has(r.team);
     const arrow = expanded ? '▾' : '▸';
-    const mainRow = `<tr>
+    const finalsRowClass = finalsRowClassFor(r.finalsAlliance);
+    const mainRow = `<tr class="${finalsRowClass}">
     <td class="num">${i + 1}</td>
     <td class="num">${r.rank === null ? '—' : r.rank}</td>
     <td class="num">${fmt(r.avgRp)}</td>
@@ -681,17 +707,119 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     // Everything schedule-dependent (Strength/SOS, Predicted/Actual record, RP, OPR (Event), CCWM,
     // Awards) stays blank, since there's genuinely nothing to compute it from yet.
     let noScheduleYet = false;
+    // A "finals-only" event: a combined event code (e.g. a Premier Event) whose own matches are just
+    // a Finals series between two divisions' winning alliances — the divisions themselves are
+    // separate event codes with their own full Quals+playoffs. This code has real, played matches,
+    // but zero at the Quals level, so the usual roster-building loop above never sees these teams.
+    let finalsOnlyEvent = false;
+    const finalsRoleByTeam = {};
+    const finalsAllianceByTeam = {};
     let eventTeams = [];
     try {
       eventTeams = await fetchJson(`https://api.ftcscout.org/rest/v1/events/${season}/${code}/teams`);
     } catch (e) {
       log('Could not fetch the event\'s team list: ' + e.message);
     }
-    if (teamIds.length === 0 && eventTeams.length > 0) {
+    if (teamIds.length === 0 && matches.length === 0 && eventTeams.length > 0) {
+      // Nothing posted at all yet — genuinely a pre-event/no-schedule state.
       noScheduleYet = true;
       teamIds = eventTeams.map(et => et.teamNumber).sort((a, b) => a - b);
       suppressAwardsInLog = true;
       log(`No match schedule posted yet for this event. Using the ${teamIds.length} team(s) registered so far instead.`);
+    } else if (teamIds.length === 0 && matches.length > 0) {
+      // ftcscout's /teams list for a combined code like this includes everyone registered across
+      // both divisions, which isn't who actually played here — build the roster from the real
+      // matches instead, so results reflect just the finalists.
+      finalsOnlyEvent = true;
+      const finalsTeamSet = new Set();
+      matches.forEach(m => m.teams.forEach(t => finalsTeamSet.add(t.teamNumber)));
+      teamIds = [...finalsTeamSet].sort((a, b) => a - b);
+      log(`No qualification matches at this event code — it looks like a combined/finals-only event. Showing just the ${teamIds.length} team(s) who actually played here, from ${matches.length} match(es).`);
+
+      // A finals-only event can be a simple 2-alliance series (e.g. two divisions' winners in a
+      // best-of-3), or a full multi-alliance bracket (e.g. a Championship division's double-elim
+      // playoffs, which can run 6+ alliances through several rounds). Red/Blue is just a per-match
+      // station label in FTC's data — the same alliance can be "Red" in one match and "Blue" in the
+      // next — so alliance identity here comes from each team's actual, fixed set of teammates
+      // (whoever they're paired with the first time they appear), not the Red/Blue label itself.
+      const allianceKey = teamNums => teamNums.slice().sort((x, y) => x - y).join(',');
+      const teamAllianceTeams = {}; // teamNumber -> that team's full alliance (team number array)
+      const teamRole = {};          // teamNumber -> 'Captain' | 'FirstPick' | 'SecondPick' | ...
+      matches.forEach(m => {
+        const red = m.teams.filter(t => t.alliance === 'Red').map(t => t.teamNumber);
+        const blue = m.teams.filter(t => t.alliance === 'Blue').map(t => t.teamNumber);
+        m.teams.forEach(t => {
+          if (!teamAllianceTeams[t.teamNumber]) teamAllianceTeams[t.teamNumber] = t.alliance === 'Red' ? red : blue;
+          if (!teamRole[t.teamNumber]) teamRole[t.teamNumber] = t.allianceRole || null;
+        });
+      });
+
+      // The champion alliance is whoever won the chronologically last played match — true whether
+      // that's the only match, the deciding match of a best-of-N series, or the final of a full
+      // bracket (a "bracket reset" match, if one happened, would itself just be the new last match).
+      // Win counts per alliance are also tracked, to order the remaining (non-champion) alliances by
+      // how far each one got, best guess without fully modeling the bracket's round structure.
+      const allianceWins = {};
+      let championKey = null, latestTime = null;
+      matches.forEach(m => {
+        if (!m.hasBeenPlayed || !m.scores || !m.scores.red || !m.scores.blue) return;
+        const rs = m.scores.red.totalPoints, bs = m.scores.blue.totalPoints;
+        if (typeof rs !== 'number' || typeof bs !== 'number') return;
+        const redKey = allianceKey(m.teams.filter(t => t.alliance === 'Red').map(t => t.teamNumber));
+        const blueKey = allianceKey(m.teams.filter(t => t.alliance === 'Blue').map(t => t.teamNumber));
+        allianceWins[redKey] = allianceWins[redKey] || 0;
+        allianceWins[blueKey] = allianceWins[blueKey] || 0;
+        if (rs > bs) allianceWins[redKey]++; else if (bs > rs) allianceWins[blueKey]++;
+        const t = m.postResultTime || m.actualStartTime || m.updatedAt;
+        if (t && (!latestTime || t > latestTime)) {
+          latestTime = t;
+          championKey = rs > bs ? redKey : (bs > rs ? blueKey : null);
+        }
+      });
+
+      // Group teams by real alliance, order the groups (champion first, then by wins descending),
+      // and order each group's own members by pick order (Captain, then picks) — same result as
+      // before for a 2-alliance event, and now generalizes to a full bracket too.
+      const roleOrder = { Captain: 0, FirstPick: 1, SecondPick: 2, ThirdPick: 3 };
+      const roleRank = t => (teamRole[t] && teamRole[t] in roleOrder) ? roleOrder[teamRole[t]] : 99;
+      const groupsByKey = {};
+      teamIds.forEach(t => {
+        const teams = teamAllianceTeams[t] || [t];
+        const key = allianceKey(teams);
+        if (!groupsByKey[key]) groupsByKey[key] = { key, teams: [...new Set(teams)], wins: allianceWins[key] || 0 };
+      });
+      const orderedGroups = Object.values(groupsByKey).sort((a, b) => {
+        const aChamp = a.key === championKey, bChamp = b.key === championKey;
+        if (aChamp !== bChamp) return aChamp ? -1 : 1;
+        if (b.wins !== a.wins) return b.wins - a.wins;
+        return a.teams[0] - b.teams[0]; // deterministic tiebreak
+      });
+      finalsAllianceCount = orderedGroups.length;
+      teamIds = [];
+      orderedGroups.forEach((g, gi) => {
+        g.teams.sort((a, b) => roleRank(a) - roleRank(b));
+        g.teams.forEach(t => {
+          teamIds.push(t);
+          finalsRoleByTeam[t] = teamRole[t] || null;
+          finalsAllianceByTeam[t] = { index: gi, isChampion: g.key === championKey };
+        });
+      });
+
+      // Normally only qual matches feed Strength of Schedule/Predicted record, and playoff matches
+      // are left unpredicted since the bracket isn't set until quals + alliance selection finish. A
+      // finals-only event has no quals at all — the Finals series *is* the entire competition — so
+      // it's treated as the "schedule" here too, letting Strength of Schedule and Predicted record
+      // (and the per-match predictions in the expanded team view) cover its unplayed matches as well.
+      matches.forEach(m => {
+        const redEntries = m.teams.filter(t => t.alliance === 'Red');
+        const blueEntries = m.teams.filter(t => t.alliance === 'Blue');
+        const redTeams = redEntries.map(t => t.teamNumber);
+        const blueTeams = blueEntries.map(t => t.teamNumber);
+        const redCredited = excludeSurrogate ? redEntries.filter(t => !t.surrogate).map(t => t.teamNumber) : redTeams;
+        const blueCredited = excludeSurrogate ? blueEntries.filter(t => !t.surrogate).map(t => t.teamNumber) : blueTeams;
+        if (redTeams.length && redCredited.length) scheduleRows.push({ teams: redCredited, allTeams: redTeams, opponents: blueTeams });
+        if (blueTeams.length && blueCredited.length) scheduleRows.push({ teams: blueCredited, allTeams: blueTeams, opponents: redTeams });
+      });
     } else {
       log(`${teamIds.length} unique teams found on the schedule.`);
     }
@@ -709,6 +837,11 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     if (noScheduleYet) {
       document.getElementById('forecastBanner').style.display = 'block';
       document.getElementById('forecastBanner').textContent = 'No match schedule has been posted for this event yet — showing the teams registered so far. Strength of schedule, Predicted/Actual record, RP, OPR (Event), and CCWM will stay blank until the schedule is posted; OPR (Pre-event) and OPR (current) already work since they don\'t depend on this event\'s own schedule.';
+    } else if (finalsOnlyEvent) {
+      document.getElementById('forecastBanner').style.display = 'block';
+      document.getElementById('forecastBanner').textContent = finalsAllianceCount === 2
+        ? 'This event code has no qualifying matches of it\'s own -- it appears to be a Finals only event of division winners. The winning alliance is listed first below and shown in its alliance color.'
+        : 'This event code has no qualifying matches of it\'s own -- it appears to be a playoff event with multiple alliances (could be division winners or cross-division playoffs). The winning alliance is listed first below and highlighted in Gold.';
     } else if (playedQuals.length === 0) {
       document.getElementById('forecastBanner').style.display = 'block';
       document.getElementById('forecastBanner').textContent = 'No matches have been played yet at this event — OPR (Event) and Actual record will stay blank. Strength of schedule and Predicted record are still fully computed from the posted schedule using Pre-event / End-of-Season OPR.';
@@ -933,11 +1066,41 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         allianceScoreSum[t] += bs;
       }
     }
+    // A finals-only event's real results live at a non-Quals level, so they're outside the loop
+    // above (which is Quals-only, same as everywhere else in the tool). No RP here — RP is a
+    // qual-match concept that doesn't apply to a head-to-head final.
+    if (finalsOnlyEvent) {
+      for (const m of matches) {
+        if (!effectivePlayed(m) || !m.scores || !m.scores.red || !m.scores.blue) continue;
+        const rs = m.scores.red.totalPoints, bs = m.scores.blue.totalPoints;
+        if (typeof rs !== 'number' || typeof bs !== 'number') continue;
+        const redWin = rs > bs, blueWin = bs > rs;
+        m.teams.forEach(e => {
+          if (excludeSurrogate && e.surrogate) return;
+          const t = e.teamNumber;
+          const won = e.alliance === 'Red' ? redWin : blueWin;
+          const lost = e.alliance === 'Red' ? blueWin : redWin;
+          if (won) actW[t]++; else if (lost) actL[t]++; else actT[t]++;
+        });
+      }
+    }
 
     const scheduledCount = {}, playedCount = {};
     teamIds.forEach(t => { scheduledCount[t] = 0; playedCount[t] = 0; });
     scheduleRows.forEach(row => row.teams.forEach(t => { scheduledCount[t] += 1; }));
     oprRows.forEach(row => row.teams.forEach(t => { playedCount[t] += 1; }));
+    // OPR (Event) is deliberately not computed for a finals-only event (see comment above where
+    // scheduleRows is populated for this case), so oprRows stays empty and playedCount needs its own
+    // source here — real match participation, the same effectivePlayed() check used everywhere else.
+    if (finalsOnlyEvent) {
+      matches.forEach(m => {
+        if (!effectivePlayed(m)) return;
+        m.teams.forEach(e => {
+          if (excludeSurrogate && e.surrogate) return;
+          if (playedCount[e.teamNumber] !== undefined) playedCount[e.teamNumber] += 1;
+        });
+      });
+    }
 
     // Average RP per qual match played (respecting the same surrogate-exclusion and debug-limit
     // rules as everything else), and average alliance score per match played (used only as a
@@ -997,7 +1160,11 @@ document.getElementById('runBtn').addEventListener('click', async () => {
       const se = strengthsEvent[t], sp = strengthsPrior[t], sc = strengthsCurrent[t];
       return {
         team: t,
-        rank: (t in rankByTeam) ? rankByTeam[t] : null,
+        // RP Rank genuinely doesn't apply to a finals-only event (no RP was ever earned, and the
+        // fallback "rank by Pre-event OPR" logic below is meant for a normal event's not-yet-played
+        // teams, not a bracket-style final) — null it here so the default sort leaves the deliberate
+        // winner-first/captain-first order (built above) alone instead of overriding it.
+        rank: finalsOnlyEvent ? null : ((t in rankByTeam) ? rankByTeam[t] : null),
         avgRp: avgRp[t],
         name: names[t],
         oprPrior: round2(priorBestOpr[t]),
@@ -1014,7 +1181,9 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         predictedWinsCurrent: predictedCurrent.w[t], predictedLossesCurrent: predictedCurrent.l[t], predictedTossCurrent: predictedCurrent.toss[t],
         actualWins: actW[t], actualLosses: actL[t], actualTies: actT[t],
         scheduled: scheduledCount[t],
-        played: playedCount[t]
+        played: playedCount[t],
+        finalsAlliance: finalsAllianceByTeam[t] || null,
+        finalsRole: finalsRoleByTeam[t] || null
       };
     });
 
