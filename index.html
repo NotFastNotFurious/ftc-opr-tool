@@ -4,8 +4,13 @@
 <meta charset="UTF-8">
 <title>FTC Event Strength of Schedule</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<!-- GoatCounter: privacy-friendly, cookieless analytics (page views, unique visitors, country). -->
-<script data-goatcounter="https://notfastnotfurious.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+<!-- GoatCounter: privacy-friendly, cookieless analytics (page views, unique visitors, country).
+     no_onload is set because the pageview is fired explicitly in the main script below (see the
+     "GoatCounter: fire the initial pageview ourselves" block) — this proved more reliable than
+     relying on count.js's built-in auto-fire-on-load behavior, which didn't always fire. -->
+<script data-goatcounter="https://notfastnotfurious.goatcounter.com/count"
+        data-goatcounter-settings='{"no_onload": true}'
+        async src="//gc.zgo.at/count.js"></script>
 <style>
   body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 1120px; margin: 40px auto; padding: 0 20px; color: #222; }
   h1 { font-size: 22px; font-weight: 600; }
@@ -152,6 +157,24 @@ function trackEvent(path, title) {
     }
   } catch (e) { /* analytics should never break the tool */ }
 }
+
+// GoatCounter: fire the initial pageview ourselves, since it's loaded as `async` (so it may not be
+// ready yet when this line runs) and its own built-in auto-fire-on-load behavior (data-goatcounter-
+// settings above disables it, via no_onload) proved unreliable in testing. This polls briefly until
+// window.goatcounter is ready, then sends one regular pageview — same approach GoatCounter's own
+// docs recommend for calling its methods right after an async load.
+(function() {
+  let tries = 0;
+  const t = setInterval(() => {
+    tries++;
+    if (window.goatcounter && typeof window.goatcounter.count === 'function') {
+      clearInterval(t);
+      try { window.goatcounter.count(); } catch (e) { /* analytics should never break the tool */ }
+    } else if (tries > 50) {
+      clearInterval(t); // GoatCounter script never loaded (e.g. blocked by an adblocker) — give up quietly.
+    }
+  }, 100);
+})();
 
 let results = [];
 let sortState = { key: 'rank', dir: 'asc' };
