@@ -516,9 +516,9 @@ function renderTable() {
     <td class="teamCell" onclick="toggleExpand(${r.team})"><span class="expandArrow">${arrow}</span>${r.team}</td>
     <td class="teamCell" onclick="toggleExpand(${r.team})"><strong>${r.name}</strong></td>
     <td class="num">${fmt(r.oprPrior)}${r.priorFallback ? '*' : ''}</td>
-    <td class="num">${fmt(r.oprCalc)}</td>
+    <td class="num"${r.oprFtcscoutSource ? ` title="Borrowed from division event ${r.oprFtcscoutSource}"` : ''}>${fmt(r.oprCalc)}${r.oprFtcscoutSource ? '*' : ''}</td>
     <td class="num col-ccwm">${r.ccwm === null ? '—' : (r.ccwm > 0 ? '+' : '') + r.ccwm.toFixed(2)}</td>
-    <td class="num col-ftcscout">${fmt(r.oprFtcscout)}</td>
+    <td class="num col-ftcscout"${r.oprFtcscoutSource ? ` title="Borrowed from division event ${r.oprFtcscoutSource}"` : ''}>${fmt(r.oprFtcscout)}${r.oprFtcscoutSource ? '*' : ''}</td>
     <td class="num">${fmt(r.oprCurrent)}</td>
     <td class="num">${fmt(st.strengthOpp)}</td>
     <td class="num">${fmt(st.strengthPartner)}</td>
@@ -993,16 +993,19 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     log('Looking up each team\'s earlier events this season, to find their best prior OPR...');
     const priorBestOpr = {};
     const priorFallback = {};
+    const oprFtcscoutSource = {}; // teamNumber -> division event code its OPR (FTCScout) was borrowed from
     if (eventStart) {
       const otherCodes = new Set();
       teamIds.forEach(t => (teamEventHistory[t] || []).forEach(e => {
         if (e.eventCode && e.eventCode !== code) otherCodes.add(e.eventCode);
       }));
       const eventStarts = {};
+      const eventDivisionCode = {};
       await Promise.all([...otherCodes].map(async ec => {
         try {
           const info = await fetchJson(`https://api.ftcscout.org/rest/v1/events/${season}/${ec}`);
           if (info && info.start) eventStarts[ec] = info.start;
+          if (info && info.divisionCode) eventDivisionCode[ec] = info.divisionCode;
         } catch (e) { /* skip events we can't resolve */ }
       }));
       teamIds.forEach(t => {
@@ -1026,6 +1029,36 @@ document.getElementById('runBtn').addEventListener('click', async () => {
           priorFallback[t] = false;
         }
       });
+      // Combined/finals-only events (see finalsOnlyEvent above) have no OPR of their own from ftcscout
+      // — ftcscout only computes event stats for a code that has its own quals schedule, and a
+      // finals-only code doesn't. Our own regression (OPR (Event)) can't be computed either — a
+      // Finals-only series is a handful of matches, not a full round robin. As a shortcut, if a team
+      // got here by advancing out of one of this event's own child divisions (division.divisionCode
+      // === this event's code), borrow that division's ftcscout OPR as a stand-in for BOTH OPR
+      // (FTCScout) and OPR (Event) — the closest real measurement of how the team was performing right
+      // before advancing here. Marked with * in the table. (This also feeds into Strength of
+      // Schedule/Predicted record when the "Event" OPR source is selected, since those derive from
+      // OPR (Event).)
+      if (finalsOnlyEvent) {
+        teamIds.forEach(t => {
+          if (t in oprFtcscout) return;
+          const hist = teamEventHistory[t] || [];
+          for (const e of hist) {
+            if (!e.eventCode || eventDivisionCode[e.eventCode] !== code) continue;
+            const np = e.stats && e.stats.opr && typeof e.stats.opr.totalPointsNp === 'number' ? e.stats.opr.totalPointsNp : null;
+            if (np !== null) {
+              oprFtcscout[t] = np;
+              oprFtcscoutSource[t] = e.eventCode;
+              if (oprCalc[t] === null || oprCalc[t] === undefined) oprCalc[t] = np;
+              break;
+            }
+          }
+        });
+        const borrowedTeams = Object.keys(oprFtcscoutSource);
+        if (borrowedTeams.length) {
+          log(`OPR (FTCScout) and OPR (Event) for ${borrowedTeams.length} team(s) are borrowed from their division event (marked with *), since ftcscout doesn't compute an OPR for a combined/finals-only code directly and there aren't enough matches here to regress our own.`);
+        }
+      }
     } else {
       log('No event start date available; "Pre-event OPR" will fall back to this event\'s OPR (once played) for all teams.');
       teamIds.forEach(t => { priorBestOpr[t] = oprCalc[t]; priorFallback[t] = oprCalc[t] !== null; });
@@ -1171,6 +1204,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         oprCalc: round2(oprCalc[t]),
         ccwm: round2(ccwm[t]),
         oprFtcscout: of_,
+        oprFtcscoutSource: oprFtcscoutSource[t] || null,
         oprCurrent: (t in oprCurrent) ? round2(oprCurrent[t]) : null,
         strengthOppEvent: se.strengthOpp, strengthPartnerEvent: se.strengthPartner, sosEvent: se.sos,
         strengthOppPrior: sp.strengthOpp, strengthPartnerPrior: sp.strengthPartner, sosPrior: sp.sos,
@@ -1217,6 +1251,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         'OPR (Event)': r.oprCalc,
         ...(showCcwmCol ? { CCWM: r.ccwm } : {}),
         'OPR (ftcscout)': r.oprFtcscout,
+        'OPR (Event) and OPR (ftcscout) borrowed from division': r.oprFtcscoutSource || '',
         'OPR (current)': r.oprCurrent,
         [`Strength of opponents (${modeLabel})`]: r[`strengthOpp${suffix}`],
         [`Strength of partner (${modeLabel})`]: r[`strengthPartner${suffix}`],
