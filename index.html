@@ -12,65 +12,106 @@
         data-goatcounter-settings='{"no_onload": true}'
         async src="//gc.zgo.at/count.js"></script>
 <style>
-  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 1120px; margin: 40px auto; padding: 0 20px; color: #222; }
+  :root {
+    --bg: #ffffff; --text: #222222; --sub-text: #666666; --label-text: #444444;
+    --border: #eeeeee; --border-strong: #222222; --input-border: #cccccc; --input-bg: #ffffff;
+    --btn-bg: #222222; --btn-text: #ffffff; --btn-border: #333333;
+    --btn2-bg: #ffffff; --btn2-text: #222222;
+    --opts2-bg: #fafafa; --opts2-border: #eeeeee; --opts-sep: #dddddd;
+    --log-bg: #f6f6f6; --log-text: #555555;
+    --th-text: #666666; --th-hover: #222222; --arrow: #999999; --arrow-active: #222222;
+    --note-text: #888888; --caption-border: #eeeeee;
+    --link-hover: #0066cc;
+    --detail-bg: #fafafa; --detail-border: #dddddd; --detail-th: #888888;
+    --banner-bg: #fff8e1; --banner-border: #f0d68a; --banner-text: #7a5c00;
+    --badge-t: #888888; --badge-u: #999999; --badge-tu: #a56800;
+    --confbar-bg: #e8e8e8;
+    --awards-label: #888888;
+    --debug-border: #cccccc; --debug-bg: #fffdf5;
+    --finals-red: #fdecea; --finals-blue: #e8f0fe; --finals-gold: #fffaeb;
+    --finals-banda: #f4f4f4; --finals-bandb: #ffffff;
+    --spinner-border: #cccccc; --spinner-top: #222222;
+  }
+  body.dark {
+    --bg: #1a1a1a; --text: #e8e8e8; --sub-text: #aaaaaa; --label-text: #bbbbbb;
+    --border: #3a3a3a; --border-strong: #e8e8e8; --input-border: #555555; --input-bg: #262626;
+    --btn-bg: #e8e8e8; --btn-text: #1a1a1a; --btn-border: #cccccc;
+    --btn2-bg: #262626; --btn2-text: #e8e8e8;
+    --opts2-bg: #222222; --opts2-border: #3a3a3a; --opts-sep: #444444;
+    --log-bg: #222222; --log-text: #cccccc;
+    --th-text: #aaaaaa; --th-hover: #ffffff; --arrow: #888888; --arrow-active: #ffffff;
+    --note-text: #999999; --caption-border: #3a3a3a;
+    --link-hover: #6cb6ff;
+    --detail-bg: #202020; --detail-border: #3a3a3a; --detail-th: #999999;
+    --banner-bg: #3a3115; --banner-border: #5c4d1f; --banner-text: #e0c46a;
+    --badge-t: #aaaaaa; --badge-u: #999999; --badge-tu: #d1a53d;
+    --confbar-bg: #3a3a3a;
+    --awards-label: #999999;
+    --debug-border: #555555; --debug-bg: #2a2712;
+    --finals-red: #4a2626; --finals-blue: #22344a; --finals-gold: #4a4126;
+    --finals-banda: #262626; --finals-bandb: #1e1e1e;
+    --spinner-border: #555555; --spinner-top: #e8e8e8;
+  }
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 1120px; margin: 40px auto; padding: 0 20px; color: var(--text); background: var(--bg); }
   h1 { font-size: 22px; font-weight: 600; }
-  .sub { color: #666; font-size: 14px; margin-bottom: 24px; }
+  .sub { color: var(--sub-text); font-size: 14px; margin-bottom: 24px; }
   .row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
-  label { display: block; font-size: 13px; color: #444; margin-bottom: 4px; }
-  input[type=text], input[type=number] { padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; width: 140px; }
+  label { display: block; font-size: 13px; color: var(--label-text); margin-bottom: 4px; }
+  input[type=text], input[type=number] { padding: 8px 10px; border: 1px solid var(--input-border); border-radius: 6px; font-size: 14px; width: 140px; background: var(--input-bg); color: var(--text); }
   input[type=text]#eventCode { width: 140px; text-transform: uppercase; }
-  button { padding: 9px 16px; border-radius: 6px; border: 1px solid #333; background: #222; color: #fff; font-size: 14px; cursor: pointer; }
+  button { padding: 9px 16px; border-radius: 6px; border: 1px solid var(--btn-border); background: var(--btn-bg); color: var(--btn-text); font-size: 14px; cursor: pointer; }
   button:disabled { opacity: 0.5; cursor: default; }
-  button.secondary { background: #fff; color: #222; }
-  .opts { font-size: 13px; color: #444; margin: 8px 0 12px; display: flex; gap: 20px; flex-wrap: wrap; }
+  button.secondary { background: var(--btn2-bg); color: var(--btn2-text); }
+  .opts { font-size: 13px; color: var(--label-text); margin: 8px 0 12px; display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
   .opts label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; }
-  .opts2 { font-size: 13px; color: #444; margin: 0 0 20px; display: flex; gap: 20px; flex-wrap: wrap; align-items: center; padding: 10px 12px; background: #fafafa; border: 1px solid #eee; border-radius: 6px; }
+  .opts2 { font-size: 13px; color: var(--label-text); margin: 0 0 20px; display: flex; gap: 20px; flex-wrap: wrap; align-items: center; padding: 10px 12px; background: var(--opts2-bg); border: 1px solid var(--opts2-border); border-radius: 6px; }
   .opts2 label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; }
   .opts2 .grp { display: flex; gap: 12px; align-items: center; }
-  .opts2 .grp-label { font-size: 12px; color: #888; margin-right: 2px; }
-  #log { font-family: ui-monospace, monospace; font-size: 12px; background: #f6f6f6; border-radius: 6px; padding: 10px 12px; min-height: 24px; white-space: pre-wrap; color: #555; margin-bottom: 20px; }
+  .opts2 .grp-label { font-size: 12px; color: var(--note-text); margin-right: 2px; }
+  .optsSep { color: var(--opts-sep); font-size: 13px; }
+  #log { font-family: ui-monospace, monospace; font-size: 12px; background: var(--log-bg); border-radius: 6px; padding: 10px 12px; min-height: 24px; white-space: pre-wrap; color: var(--log-text); margin-bottom: 20px; }
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #eee; }
-  th { color: #666; font-weight: 500; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--th-text); font-weight: 500; }
   td.num, th.num { text-align: right; }
   th.sortable { cursor: pointer; user-select: none; }
-  th.sortable:hover { color: #222; }
-  th.sortable .arrow { display: inline-block; width: 12px; color: #999; }
-  th.sortable.active .arrow { color: #222; }
+  th.sortable:hover { color: var(--th-hover); }
+  th.sortable .arrow { display: inline-block; width: 12px; color: var(--arrow); }
+  th.sortable.active .arrow { color: var(--arrow-active); }
   #downloadRow { margin-top: 16px; display: none; }
-  .note { font-size: 12px; color: #888; margin-top: 4px; }
-  .caption { font-size: 12px; color: #888; margin: 24px 0 12px; padding-top: 12px; border-top: 1px solid #eee; }
-  #eventName { font-size: 28px; font-weight: 700; margin: 16px 0 10px; padding-bottom: 8px; border-bottom: 2px solid #222; display: none; }
-  #forecastBanner { display: none; background: #fff8e1; border: 1px solid #f0d68a; color: #7a5c00; font-size: 13px; padding: 10px 14px; border-radius: 6px; margin: 0 0 16px; }
+  .note { font-size: 12px; color: var(--note-text); margin-top: 4px; }
+  .caption { font-size: 12px; color: var(--note-text); margin: 24px 0 12px; padding-top: 12px; border-top: 1px solid var(--caption-border); }
+  #eventName { font-size: 28px; font-weight: 700; margin: 16px 0 10px; padding-bottom: 8px; border-bottom: 2px solid var(--border-strong); display: none; }
+  #forecastBanner { display: none; background: var(--banner-bg); border: 1px solid var(--banner-border); color: var(--banner-text); font-size: 13px; padding: 10px 14px; border-radius: 6px; margin: 0 0 16px; }
   .teamCell { cursor: pointer; }
-  .teamCell:hover { text-decoration: underline; color: #06c; }
+  .teamCell:hover { text-decoration: underline; color: var(--link-hover); }
   .teamCell a { color: inherit; text-decoration: none; }
-  .teamCell a:hover { text-decoration: underline; color: #06c; }
-  .expandArrow { display: inline-block; width: 12px; color: #999; }
-  tr.detailRow td { padding: 10px 10px 16px 28px; background: #fafafa; border-bottom: 1px solid #ddd; }
+  .teamCell a:hover { text-decoration: underline; color: var(--link-hover); }
+  .expandArrow { display: inline-block; width: 12px; color: var(--arrow); }
+  tr.detailRow td { padding: 10px 10px 16px 28px; background: var(--detail-bg); border-bottom: 1px solid var(--detail-border); }
   table.detailTable { width: auto; min-width: 60%; font-size: 12px; }
-  table.detailTable th, table.detailTable td { padding: 4px 10px; border-bottom: 1px solid #eee; }
-  table.detailTable th { color: #888; font-weight: 500; }
+  table.detailTable th, table.detailTable td { padding: 4px 10px; border-bottom: 1px solid var(--border); }
+  table.detailTable th { color: var(--detail-th); font-weight: 500; }
   .resultBadge { display: inline-block; min-width: 16px; text-align: center; font-weight: 600; }
   .resultBadge.W { color: #1a7f37; }
   .resultBadge.L { color: #c0392b; }
-  .resultBadge.T { color: #888; }
-  .resultBadge.U { color: #999; font-weight: 500; }
-  .resultBadge.TU { color: #a56800; }
-  .confBar { display: inline-block; width: 28px; height: 6px; background: #e8e8e8; border-radius: 3px; overflow: hidden; vertical-align: middle; margin: 0 4px; }
+  .resultBadge.T { color: var(--badge-t); }
+  .resultBadge.U { color: var(--badge-u); font-weight: 500; }
+  .resultBadge.TU { color: var(--badge-tu); }
+  .confBar { display: inline-block; width: 28px; height: 6px; background: var(--confbar-bg); border-radius: 3px; overflow: hidden; vertical-align: middle; margin: 0 4px; }
   .confBarFill { display: block; height: 100%; }
   .resultBadge.predicted { opacity: 0.75; border: 1px dashed currentColor; border-radius: 3px; padding: 0 4px; }
-  .predTag { font-size: 10px; color: #999; font-style: italic; margin-left: 3px; }
+  .predTag { font-size: 10px; color: var(--note-text); font-style: italic; margin-left: 3px; }
   .awardsBlock { margin-top: 12px; font-size: 12px; }
-  .awardsBlock strong { display: block; color: #888; font-weight: 500; margin-bottom: 4px; }
+  .awardsBlock strong { display: block; color: var(--awards-label); font-weight: 500; margin-bottom: 4px; }
   .awardsBlock ul { margin: 0; padding-left: 18px; }
-  .debugField { border: 1px dashed #ccc !important; background: #fffdf5; }
-  tr.finalsRedRow td { background: #fdecea; }
-  tr.finalsBlueRow td { background: #e8f0fe; }
-  tr.finalsChampionRow td { background: #fffaeb; }
-  tr.finalsAllianceBandA td { background: #f4f4f4; }
-  tr.finalsAllianceBandB td { background: #ffffff; }
-  .spinner { display: none; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: #222; border-radius: 50%; margin-left: 10px; vertical-align: middle; animation: spin 0.7s linear infinite; }
+  .debugField { border: 1px dashed var(--debug-border) !important; background: var(--debug-bg); }
+  tr.finalsRedRow td { background: var(--finals-red); }
+  tr.finalsBlueRow td { background: var(--finals-blue); }
+  tr.finalsChampionRow td { background: var(--finals-gold); }
+  tr.finalsAllianceBandA td { background: var(--finals-banda); }
+  tr.finalsAllianceBandB td { background: var(--finals-bandb); }
+  .spinner { display: none; width: 16px; height: 16px; border: 2px solid var(--spinner-border); border-top-color: var(--spinner-top); border-radius: 50%; margin-left: 10px; vertical-align: middle; animation: spin 0.7s linear infinite; }
   .spinner.active { display: inline-block; }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
@@ -94,7 +135,8 @@
 </div>
 
 <div class="opts">
-  <label><input type="checkbox" id="excludeSurrogate" checked> Exclude surrogate matches</label>
+  <label><input type="checkbox" id="excludeSurrogate"> Exclude surrogate matches</label>
+  <label><input type="checkbox" id="darkMode" checked> Dark mode</label>
   <div id="debugFieldWrap" style="display:none">
     <label for="debugMatchLimit">Debug: simulate only first N qual matches played (blank = actual)</label>
     <input type="number" id="debugMatchLimit" class="debugField" min="0" placeholder="all played">
@@ -102,12 +144,19 @@
 </div>
 
 <div class="opts2" id="displayOpts" style="display:none">
-  <label><input type="checkbox" id="showFtcscoutCol"> Show ftcscout</label>
   <div class="grp">
     <span class="grp-label">Strength Calc OPRs:</span>
     <label><input type="radio" name="strengthMode" id="strengthPrior" value="prior" checked> Pre-event</label>
     <label><input type="radio" name="strengthMode" id="strengthEvent" value="event"> Event</label>
     <label><input type="radio" name="strengthMode" id="strengthCurrent" value="current"> End-of-Season</label>
+  </div>
+  <span class="optsSep">|</span>
+  <!-- Hidden per Dean's request (2026): OPR (Event) now matches ftcscout's own OPR by default
+       (excludeSurrogate defaults to off), so the separate ftcscout-comparison column is redundant
+       for most visitors. Logic is intentionally left intact — just flip this wrapper's display to
+       restore the checkbox. -->
+  <div id="ftcscoutColWrap" style="display:none">
+    <label><input type="checkbox" id="showFtcscoutCol"> Show ftcscout opr</label>
   </div>
 </div>
 
@@ -254,14 +303,48 @@ function buildAwardsHtml(awards) {
   return `<div class="awardsBlock"><strong>Awards</strong><ul>${items}</ul></div>`;
 }
 
-// A little personalization: team 30564 ("WIRE We Doing This?") always renders in Carolina Blue,
-// wherever its number or name shows up — the main table, and any partner/opponent listing in the
-// expanded match log.
-const FAVORITE_TEAM = 30564;
-const FAVORITE_TEAM_COLOR = '#4B9CD3';
-function favTeamSpan(team, html) {
-  return team === FAVORITE_TEAM ? `<span style="color:${FAVORITE_TEAM_COLOR}">${html}</span>` : html;
+// Lets a URL bring its own highlight: ?highlight=30564 (or a comma-separated list, e.g.
+// ?highlight=30564,30303) colors those team numbers/names wherever they show up — the main table,
+// and any partner/opponent listing in the expanded match log. Each team in the list can optionally
+// pin its own color with a :color suffix, e.g. ?highlight=30564:blue,18389:red,23638 — 23638 has no
+// suffix, so it falls back to ?color= (a plain default for every team without its own color), which
+// itself falls back to Carolina Blue if omitted or not a valid CSS color. A team's own :color wins
+// if given and valid; an invalid one falls back the same way as no color at all.
+const urlParams = new URLSearchParams(window.location.search);
+function isValidCssColor(str) {
+  if (typeof str !== 'string' || !str.trim()) return false;
+  const opt = new Option();
+  opt.style.color = '';
+  opt.style.color = str;
+  return opt.style.color !== '';
 }
+const DEFAULT_HIGHLIGHT_COLOR = '#4B9CD3'; // Carolina Blue
+const defaultHighlightColor = isValidCssColor(urlParams.get('color')) ? urlParams.get('color') : DEFAULT_HIGHLIGHT_COLOR;
+const highlightColors = new Map(); // teamNumber -> color string
+(urlParams.get('highlight') || '').split(',').forEach(entry => {
+  const [teamStr, colorStr] = entry.split(':');
+  const team = parseInt((teamStr || '').trim(), 10);
+  if (!Number.isFinite(team)) return;
+  const ownColor = colorStr && isValidCssColor(colorStr.trim()) ? colorStr.trim() : null;
+  highlightColors.set(team, ownColor || defaultHighlightColor);
+});
+function favTeamSpan(team, html) {
+  return highlightColors.has(team) ? `<span style="color:${highlightColors.get(team)}">${html}</span>` : html;
+}
+
+// What-if analysis: ?unplay=12,45 treats qualification match numbers 12 and 45 as not-yet-played,
+// regardless of their real status — same as debug's simulate-only-the-first-N-matches idea, but
+// picking specific match numbers instead of a cutoff. They stay on the schedule (still "Scheduled",
+// still shown in the match log as "Upcoming") but contribute no OPR/CCWM/RP/Actual-record credit;
+// Strength of Schedule/Predicted record then treat them as still to be played. See effectivePlayed()
+// in the runBtn handler below, which is the only place this set gets consulted. Only Quals-level
+// matches are eligible; a number that doesn't match a real quals match at this event is a no-op.
+const excludeMatchNumbers = new Set(
+  (urlParams.get('unplay') || '')
+    .split(',')
+    .map(s => parseInt(s.trim(), 10))
+    .filter(n => Number.isFinite(n))
+);
 
 function toggleExpand(team) {
   if (expandedTeams.has(team)) expandedTeams.delete(team);
@@ -526,7 +609,7 @@ function renderTable() {
     <td class="num">${r.rank === null ? '—' : r.rank}</td>
     <td class="num">${fmt(r.avgRp)}</td>
     <td class="teamCell">${favTeamSpan(r.team, `<a href="https://ftcscout.org/teams/${r.team}#${currentEventCode}" target="_blank" rel="noopener" title="Open ${r.team} on ftcscout.org"><strong>${r.team}</strong></a>`)}</td>
-    <td class="teamCell" onclick="toggleExpand(${r.team})">${favTeamSpan(r.team, `<strong>${r.name}</strong>`)}</td>
+    <td class="teamCell" onclick="toggleExpand(${r.team})"><span class="expandArrow">${arrow}</span>${favTeamSpan(r.team, `<strong>${r.name}</strong>`)}</td>
     <td class="num">${fmt(r.oprPrior)}${r.priorFallback ? '*' : ''}</td>
     <td class="num"${r.oprFtcscoutSource ? ` title="Borrowed from division event ${r.oprFtcscoutSource}"` : ''}>${fmt(r.oprCalc)}${r.oprFtcscoutSource ? '*' : ''}</td>
     <td class="num col-ccwm">${r.ccwm === null ? '—' : (r.ccwm > 0 ? '+' : '') + r.ccwm.toFixed(2)}</td>
@@ -585,6 +668,19 @@ document.getElementById('strengthEvent').addEventListener('change', renderTable)
 document.getElementById('strengthPrior').addEventListener('change', renderTable);
 document.getElementById('strengthCurrent').addEventListener('change', renderTable);
 
+// Dark mode is purely a CSS class toggle (see the CSS custom properties at the top of <style> and
+// the body.dark overrides) — it never touches `results` or triggers a re-fetch, so switching it
+// never loses whatever's already on screen. Always starts from the checkbox's own default (checked
+// = on) on every load — deliberately not remembered across visits, so it can't get stuck showing a
+// stale preference from an earlier version of this page.
+(function() {
+  const darkModeCheckbox = document.getElementById('darkMode');
+  document.body.classList.toggle('dark', darkModeCheckbox.checked);
+  darkModeCheckbox.addEventListener('change', () => {
+    document.body.classList.toggle('dark', darkModeCheckbox.checked);
+  });
+})();
+
 document.getElementById('runBtn').addEventListener('click', async () => {
   clearLog();
   document.getElementById('resultsTable').style.display = 'none';
@@ -616,7 +712,13 @@ document.getElementById('runBtn').addEventListener('click', async () => {
   // When debug mode is on, only quals matches numbered <= debugLimit count as "played" (and only if
   // they actually were played in reality) — everything else, including all playoffs, is simulated as
   // not-yet-played, letting you preview what the tool would've shown at that point in the event.
+  // What-if analysis via ?unplay=: the named qualification match number(s) are always treated as
+  // not-yet-played, regardless of their real status or the debug limit — they stay on the schedule
+  // (so "Scheduled" counts and the match log still show them, as "Upcoming"), but contribute no
+  // credit anywhere: OPR/CCWM regression, RP, Actual record, and Strength of Schedule/Predicted
+  // record all fall back to treating them as still-to-be-played.
   function effectivePlayed(m) {
+    if (m.tournamentLevel === 'Quals' && excludeMatchNumbers.has(m.matchNumber ?? m.id)) return false;
     if (debugLimit === null) return !!m.hasBeenPlayed;
     if (m.tournamentLevel !== 'Quals') return false;
     const num = m.matchNumber || m.id;
@@ -646,6 +748,15 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     log('Fetching match data...');
     const matches = await fetchJson(`https://api.ftcscout.org/rest/v1/events/${season}/${code}/matches`);
     log(`Got ${matches.length} total matches.`);
+
+    // What-if analysis via ?unplay= (see effectivePlayed() above, which is where this actually
+    // takes effect): report which of the named match numbers are real quals matches at this event.
+    if (excludeMatchNumbers.size) {
+      const found = matches.filter(m => m.tournamentLevel === 'Quals' && excludeMatchNumbers.has(m.matchNumber ?? m.id));
+      if (found.length) {
+        log(`WHAT-IF (?unplay=): treating qualification match(es) #${found.map(m => m.matchNumber ?? m.id).join(', #')} as not-yet-played, for OPR, CCWM, RP, Strength of Schedule, and Predicted/Actual record.`);
+      }
+    }
 
     // The full quals schedule (played or not) drives the team roster, strength of schedule, and
     // predicted record, so this tool works before any matches have been played. `playedQuals` (a
