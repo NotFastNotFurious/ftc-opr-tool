@@ -44,6 +44,8 @@
   #forecastBanner { display: none; background: #fff8e1; border: 1px solid #f0d68a; color: #7a5c00; font-size: 13px; padding: 10px 14px; border-radius: 6px; margin: 0 0 16px; }
   .teamCell { cursor: pointer; }
   .teamCell:hover { text-decoration: underline; color: #06c; }
+  .teamCell a { color: inherit; text-decoration: none; }
+  .teamCell a:hover { text-decoration: underline; color: #06c; }
   .expandArrow { display: inline-block; width: 12px; color: #999; }
   tr.detailRow td { padding: 10px 10px 16px 28px; background: #fafafa; border-bottom: 1px solid #ddd; }
   table.detailTable { width: auto; min-width: 60%; font-size: 12px; }
@@ -191,6 +193,7 @@ let suppressAwardsInLog = false;
 let showCcwmCol = false;
 let finalsAllianceCount = 0;
 let debugFlagActive = false;
+let currentEventCode = ''; // used to build each team's ftcscout.org link, e.g. .../teams/24006#FTCCMP1LOVE
 
 // The debug field is a testing aid, not something a normal visitor should stumble onto — it only
 // appears when the page is loaded with ?debug=Y (or 1/true/yes) in the URL. CCWM is an experimental
@@ -249,6 +252,15 @@ function buildAwardsHtml(awards) {
     return `<li>${parts.join(' ')}</li>`;
   }).join('');
   return `<div class="awardsBlock"><strong>Awards</strong><ul>${items}</ul></div>`;
+}
+
+// A little personalization: team 30564 ("WIRE We Doing This?") always renders in Carolina Blue,
+// wherever its number or name shows up — the main table, and any partner/opponent listing in the
+// expanded match log.
+const FAVORITE_TEAM = 30564;
+const FAVORITE_TEAM_COLOR = '#4B9CD3';
+function favTeamSpan(team, html) {
+  return team === FAVORITE_TEAM ? `<span style="color:${FAVORITE_TEAM_COLOR}">${html}</span>` : html;
 }
 
 function toggleExpand(team) {
@@ -513,8 +525,8 @@ function renderTable() {
     <td class="num">${i + 1}</td>
     <td class="num">${r.rank === null ? '—' : r.rank}</td>
     <td class="num">${fmt(r.avgRp)}</td>
-    <td class="teamCell" onclick="toggleExpand(${r.team})"><span class="expandArrow">${arrow}</span>${r.team}</td>
-    <td class="teamCell" onclick="toggleExpand(${r.team})"><strong>${r.name}</strong></td>
+    <td class="teamCell">${favTeamSpan(r.team, `<a href="https://ftcscout.org/teams/${r.team}#${currentEventCode}" target="_blank" rel="noopener" title="Open ${r.team} on ftcscout.org"><strong>${r.team}</strong></a>`)}</td>
+    <td>${favTeamSpan(r.team, `<strong>${r.name}</strong>`)}</td>
     <td class="num">${fmt(r.oprPrior)}${r.priorFallback ? '*' : ''}</td>
     <td class="num"${r.oprFtcscoutSource ? ` title="Borrowed from division event ${r.oprFtcscoutSource}"` : ''}>${fmt(r.oprCalc)}${r.oprFtcscoutSource ? '*' : ''}</td>
     <td class="num col-ccwm">${r.ccwm === null ? '—' : (r.ccwm > 0 ? '+' : '') + r.ccwm.toFixed(2)}</td>
@@ -525,7 +537,7 @@ function renderTable() {
     <td class="num">${st.sos === null ? '—' : (st.sos > 0 ? '+' : '') + st.sos.toFixed(2)}</td>
     <td class="num">${prKnown ? `${pr.w}-${pr.l}${pr.toss ? '-' + pr.toss : ''}` : '—'}</td>
     <td class="num">${arKnown ? `${r.actualWins}-${r.actualLosses}${r.actualTies ? '-' + r.actualTies : ''}` : '—'}</td>
-    <td class="num">${r.scheduled ? `${r.played}/${r.scheduled}` : '—'}</td>
+    <td class="num teamCell" onclick="toggleExpand(${r.team})"><span class="expandArrow">${arrow}</span><strong>${r.scheduled ? `${r.played}/${r.scheduled}` : '—'}</strong></td>
   </tr>`;
     const detailRow = expanded
       ? `<tr class="detailRow"><td colspan="16">${buildMatchTable(teamMatches[r.team], oprBySource[currentStrengthMode()])}${suppressAwardsInLog ? '' : buildAwardsHtml(teamAwards[r.team])}</td></tr>`
@@ -591,6 +603,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
   const season = document.getElementById('season').value.trim();
   const code = document.getElementById('eventCode').value.trim().toUpperCase();
   const excludeSurrogate = document.getElementById('excludeSurrogate').checked;
+  currentEventCode = code;
 
   // Usage tracking: how often the button gets pressed, which season/event people look up, and
   // which Strength Calc OPR source they have selected. Fired on every click attempt (even with
@@ -888,7 +901,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     // Build a per-team match log (for the expandable match detail rows). Includes every match on
     // the schedule — quals + playoffs, played or not — so a team's full slate is visible even before
     // the event starts. Unplayed matches show "Upcoming" instead of a result.
-    const teamLabel = t => `${t}${names[t] ? ' ' + names[t] : ''}`;
+    const teamLabel = t => favTeamSpan(t, `${t}${names[t] ? ' ' + names[t] : ''}`);
 
     // Ranking points aren't the same formula every season — FTC changes the bonus RP categories (and
     // sometimes the win-RP value itself) with each year's game. E.g. season 2025 pays 3 RP for a qual
