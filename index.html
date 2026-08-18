@@ -78,6 +78,8 @@
   th.sortable:hover { color: var(--th-hover); }
   th.sortable .arrow { display: inline-block; width: 12px; color: var(--arrow); }
   th.sortable.active .arrow { color: var(--arrow-active); }
+  /* Temporarily hidden per Dean's request (2026) to preview the table without RP Rank; not deleted, just toggle this off to bring it back. */
+  .col-rank { display: none; }
   #downloadRow { margin-top: 16px; display: none; }
   .note { font-size: 12px; color: var(--note-text); margin-top: 4px; }
   .caption { font-size: 12px; color: var(--note-text); margin: 24px 0 12px; padding-top: 12px; border-top: 1px solid var(--caption-border); }
@@ -148,7 +150,7 @@
     <span class="grp-label">Strength Calc OPRs:</span>
     <label><input type="radio" name="strengthMode" id="strengthPrior" value="prior" checked> Pre-event</label>
     <label><input type="radio" name="strengthMode" id="strengthEvent" value="event"> Event</label>
-    <label><input type="radio" name="strengthMode" id="strengthCurrent" value="current"> End-of-Season</label>
+    <label><input type="radio" name="strengthMode" id="strengthCurrent" value="current"> All Season</label>
   </div>
   <span class="optsSep">|</span>
   <!-- Hidden per Dean's request (2026): OPR (Event) now matches ftcscout's own OPR by default
@@ -170,20 +172,20 @@
   <thead>
     <tr>
       <th class="num"></th>
-      <th class="num sortable" data-key="rank">RP Rank <span class="arrow"></span></th>
+      <th class="num sortable col-rank" data-key="rank">RP Rank <span class="arrow"></span></th>
       <th class="num sortable" data-key="avgRp">RP <span class="arrow"></span></th>
       <th class="sortable" data-key="team">Team <span class="arrow"></span></th>
       <th class="sortable" data-key="name">Name <span class="arrow"></span></th>
-      <th class="num sortable" data-key="oprPrior">OPR (Pre-Event) <span class="arrow"></span></th>
+      <th class="num sortable" data-key="oprPrior">OPR (Pre) <span class="arrow"></span></th>
       <th class="num sortable" data-key="oprCalc">OPR (Event) <span class="arrow"></span></th>
+      <th class="num sortable col-current" data-key="oprCurrent">OPR (All) <span class="arrow"></span></th>
       <th class="num sortable col-ccwm" data-key="ccwm">CCWM <span class="arrow"></span></th>
       <th class="num sortable col-ftcscout" data-key="oprFtcscout">OPR (FTCScout) <span class="arrow"></span></th>
-      <th class="num sortable" data-key="oprCurrent">OPR (Current) <span class="arrow"></span></th>
-      <th class="num sortable" data-key="strengthOpp">Strength of Opponents <span class="arrow"></span></th>
-      <th class="num sortable" data-key="strengthPartner">Strength of Partner <span class="arrow"></span></th>
-      <th class="num sortable" data-key="sos">Strength of Schedule <span class="arrow"></span></th>
-      <th class="num sortable" data-key="predictedWins">Predicted Record <span class="arrow"></span></th>
-      <th class="num sortable" data-key="actualWins">Actual Record <span class="arrow"></span></th>
+      <th class="num sortable" data-key="strengthOpp">Opp Str <span class="arrow"></span></th>
+      <th class="num sortable" data-key="strengthPartner">Part Str <span class="arrow"></span></th>
+      <th class="num sortable" data-key="sos">SOS <span class="arrow"></span></th>
+      <th class="num sortable" data-key="predictedWins">Predicted <span class="arrow"></span></th>
+      <th class="num sortable" data-key="actualWins">Actual <span class="arrow"></span></th>
       <th class="num sortable" data-key="played">Played <span class="arrow"></span></th>
     </tr>
   </thead>
@@ -266,7 +268,7 @@ let currentEventCode = ''; // used to build each team's ftcscout.org link, e.g. 
   if (showCcwmCol) {
     parts.push(`CCWM = same regression as OPR (Event), solved on score margin instead of raw score — estimates contribution to winning margin (captures defense), not just scoring; blank until played.`);
   }
-  parts.push(`OPR (current) = ftcscout's season-wide rating. Strength of opponents/partner = average OPR of scheduled opponents/partner; Strength of Schedule = opponents − partner.`);
+  parts.push(`OPR (All Season) = ftcscout's season-wide rating. Strength of opponents/partner = average OPR of scheduled opponents/partner; Strength of Schedule = opponents − partner.`);
   parts.push(`Strength of Schedule/Predicted record use the full schedule and whichever OPR source is selected, so they work pre-match too. Predicted record = W-L-toss-ups; margins under 10 points count as a toss-up, not a call.`);
   parts.push(`Actual record = real win-loss-tie record so far. Played = matches played/scheduled (e.g. "4/5").`);
   parts.push(`Excluding surrogates skips a match only for the surrogate team(s), not their partner or opponents.`);
@@ -606,15 +608,15 @@ function renderTable() {
     const finalsRowClass = finalsRowClassFor(r.finalsAlliance);
     const mainRow = `<tr class="${finalsRowClass}">
     <td class="num">${i + 1}</td>
-    <td class="num">${r.rank === null ? '—' : r.rank}</td>
+    <td class="num col-rank">${r.rank === null ? '—' : r.rank}</td>
     <td class="num">${fmt(r.avgRp)}</td>
     <td class="teamCell">${favTeamSpan(r.team, `<a href="https://ftcscout.org/teams/${r.team}#${currentEventCode}" target="_blank" rel="noopener" title="Open ${r.team} on ftcscout.org"><strong>${r.team}</strong></a>`)}</td>
     <td class="teamCell" onclick="toggleExpand(${r.team})"><span class="expandArrow">${arrow}</span>${favTeamSpan(r.team, `<strong>${r.name}</strong>`)}</td>
     <td class="num">${fmt(r.oprPrior)}${r.priorFallback ? '*' : ''}</td>
     <td class="num"${r.oprFtcscoutSource ? ` title="Borrowed from division event ${r.oprFtcscoutSource}"` : ''}>${fmt(r.oprCalc)}${r.oprFtcscoutSource ? '*' : ''}</td>
+    <td class="num col-current">${fmt(r.oprCurrent)}</td>
     <td class="num col-ccwm">${r.ccwm === null ? '—' : (r.ccwm > 0 ? '+' : '') + r.ccwm.toFixed(2)}</td>
     <td class="num col-ftcscout"${r.oprFtcscoutSource ? ` title="Borrowed from division event ${r.oprFtcscoutSource}"` : ''}>${fmt(r.oprFtcscout)}${r.oprFtcscoutSource ? '*' : ''}</td>
-    <td class="num">${fmt(r.oprCurrent)}</td>
     <td class="num">${fmt(st.strengthOpp)}</td>
     <td class="num">${fmt(st.strengthPartner)}</td>
     <td class="num">${st.sos === null ? '—' : (st.sos > 0 ? '+' : '') + st.sos.toFixed(2)}</td>
@@ -636,6 +638,7 @@ function renderTable() {
 
   updateFtcscoutVisibility();
   updateCcwmVisibility();
+  updateCurrentOprVisibility();
 }
 
 function updateFtcscoutVisibility() {
@@ -648,6 +651,16 @@ function updateFtcscoutVisibility() {
 function updateCcwmVisibility() {
   document.querySelectorAll('.col-ccwm').forEach(el => {
     el.style.display = showCcwmCol ? '' : 'none';
+  });
+}
+
+// OPR (All Season) only makes sense to look at when it's the OPR source actually being used
+// elsewhere on the page (Strength of Schedule/Predicted record), so it stays hidden unless the
+// "All Season" radio is selected — same on/off pattern as the CCWM and ftcscout OPR columns.
+function updateCurrentOprVisibility() {
+  const show = document.getElementById('strengthCurrent').checked;
+  document.querySelectorAll('.col-current').forEach(el => {
+    el.style.display = show ? '' : 'none';
   });
 }
 
@@ -960,7 +973,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
 
     if (noScheduleYet) {
       document.getElementById('forecastBanner').style.display = 'block';
-      document.getElementById('forecastBanner').textContent = 'No match schedule has been posted for this event yet — showing the teams registered so far. Strength of schedule, Predicted/Actual record, RP, OPR (Event), and CCWM will stay blank until the schedule is posted; OPR (Pre-event) and OPR (current) already work since they don\'t depend on this event\'s own schedule.';
+      document.getElementById('forecastBanner').textContent = 'No match schedule has been posted for this event yet — showing the teams registered so far. Strength of schedule, Predicted/Actual record, RP, OPR (Event), and CCWM will stay blank until the schedule is posted; OPR (Pre-event) and OPR (All Season) already work since they don\'t depend on this event\'s own schedule.';
     } else if (finalsOnlyEvent) {
       document.getElementById('forecastBanner').style.display = 'block';
       document.getElementById('forecastBanner').textContent = finalsAllianceCount === 2
@@ -968,7 +981,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         : 'This event code has no qualifying matches of it\'s own -- it appears to be a playoff event with multiple alliances (could be division winners or cross-division playoffs). The winning alliance is listed first below and highlighted in Gold.';
     } else if (playedQuals.length === 0) {
       document.getElementById('forecastBanner').style.display = 'block';
-      document.getElementById('forecastBanner').textContent = 'No matches have been played yet at this event — OPR (Event) and Actual record will stay blank. Strength of schedule and Predicted record are still fully computed from the posted schedule using Pre-event / End-of-Season OPR.';
+      document.getElementById('forecastBanner').textContent = 'No matches have been played yet at this event — OPR (Event) and Actual record will stay blank. Strength of schedule and Predicted record are still fully computed from the posted schedule using Pre-event / All Season OPR.';
     }
 
     log('Fetching team names and ftcscout\'s own OPR...');
@@ -1188,7 +1201,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
       teamIds.forEach(t => { priorBestOpr[t] = oprCalc[t]; priorFallback[t] = oprCalc[t] !== null; });
     }
 
-    log('Computing strength of opponents, strength of partner, SOS, and predicted record (Pre-event, Event, and End-of-Season OPR) from the full posted schedule...');
+    log('Computing strength of opponents, strength of partner, SOS, and predicted record (Pre-event, Event, and All Season OPR) from the full posted schedule...');
     const strengthsEvent = computeStrengths(scheduleRows, teamIds, oprCalc);
     const strengthsPrior = computeStrengths(scheduleRows, teamIds, priorBestOpr);
     const strengthsCurrent = computeStrengths(scheduleRows, teamIds, oprCurrent);
@@ -1366,7 +1379,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
 
     document.getElementById('downloadBtn').onclick = () => {
       const mode = currentStrengthMode();
-      const modeLabel = mode === 'prior' ? 'pre-event OPR' : (mode === 'current' ? 'current OPR' : 'event OPR');
+      const modeLabel = mode === 'prior' ? 'pre-event OPR' : (mode === 'current' ? 'all season OPR' : 'event OPR');
       const suffix = mode === 'prior' ? 'Prior' : (mode === 'current' ? 'Current' : 'Event');
       const wb = XLSX.utils.book_new();
       const teamSheet = XLSX.utils.json_to_sheet(results.map(r => ({
@@ -1376,7 +1389,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         ...(showCcwmCol ? { CCWM: r.ccwm } : {}),
         'OPR (ftcscout)': r.oprFtcscout,
         'OPR (Event) and OPR (ftcscout) borrowed from division': r.oprFtcscoutSource || '',
-        'OPR (current)': r.oprCurrent,
+        'OPR (All Season)': r.oprCurrent,
         [`Strength of opponents (${modeLabel})`]: r[`strengthOpp${suffix}`],
         [`Strength of partner (${modeLabel})`]: r[`strengthPartner${suffix}`],
         SOS: r[`sos${suffix}`],
