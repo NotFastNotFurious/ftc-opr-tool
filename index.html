@@ -31,6 +31,7 @@
     --finals-red: #fdecea; --finals-blue: #e8f0fe; --finals-gold: #fffaeb;
     --finals-banda: #f4f4f4; --finals-bandb: #ffffff;
     --spinner-border: #cccccc; --spinner-top: #222222;
+    --opr-active-bg: rgba(75, 156, 211, 0.14);
   }
   body.dark {
     --bg: #1a1a1a; --text: #e8e8e8; --sub-text: #aaaaaa; --label-text: #bbbbbb;
@@ -51,6 +52,7 @@
     --finals-red: #4a2626; --finals-blue: #22344a; --finals-gold: #4a4126;
     --finals-banda: #262626; --finals-bandb: #1e1e1e;
     --spinner-border: #555555; --spinner-top: #e8e8e8;
+    --opr-active-bg: rgba(75, 156, 211, 0.22);
   }
   body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 1120px; margin: 40px auto; padding: 0 20px; color: var(--text); background: var(--bg); }
   h1 { font-size: 22px; font-weight: 600; }
@@ -80,6 +82,8 @@
   th.sortable.active .arrow { color: var(--arrow-active); }
   /* Temporarily hidden per Dean's request (2026) to preview the table without RP Rank; not deleted, just toggle this off to bring it back. */
   .col-rank { display: none; }
+  /* Highlights whichever OPR column (Pre/Event/All) matches the currently-selected Strength Calc radio. */
+  .oprActiveCol { background: var(--opr-active-bg); }
   #downloadRow { margin-top: 16px; display: none; }
   .note { font-size: 12px; color: var(--note-text); margin-top: 4px; }
   .caption { font-size: 12px; color: var(--note-text); margin: 24px 0 12px; padding-top: 12px; border-top: 1px solid var(--caption-border); }
@@ -171,22 +175,22 @@
 <table id="resultsTable" style="display:none">
   <thead>
     <tr>
-      <th class="num"></th>
-      <th class="num sortable col-rank" data-key="rank">RP Rank <span class="arrow"></span></th>
-      <th class="num sortable" data-key="avgRp">RP <span class="arrow"></span></th>
-      <th class="sortable" data-key="team">Team <span class="arrow"></span></th>
-      <th class="sortable" data-key="name">Name <span class="arrow"></span></th>
-      <th class="num sortable" data-key="oprPrior">OPR (Pre) <span class="arrow"></span></th>
-      <th class="num sortable" data-key="oprCalc">OPR (Event) <span class="arrow"></span></th>
-      <th class="num sortable col-current" data-key="oprCurrent">OPR (All) <span class="arrow"></span></th>
-      <th class="num sortable col-ccwm" data-key="ccwm">CCWM <span class="arrow"></span></th>
-      <th class="num sortable col-ftcscout" data-key="oprFtcscout">OPR (FTCScout) <span class="arrow"></span></th>
-      <th class="num sortable" data-key="strengthOpp">Opp Str <span class="arrow"></span></th>
-      <th class="num sortable" data-key="strengthPartner">Part Str <span class="arrow"></span></th>
-      <th class="num sortable" data-key="sos">SOS <span class="arrow"></span></th>
-      <th class="num sortable" data-key="predictedWins">Predicted <span class="arrow"></span></th>
-      <th class="num sortable" data-key="actualWins">Actual <span class="arrow"></span></th>
-      <th class="num sortable" data-key="played">Played <span class="arrow"></span></th>
+      <th class="num" title="Row number in the current sort order"></th>
+      <th class="num sortable col-rank" data-key="rank" title="Rank by RP, using ftcscout's official tiebreakers once the event is complete (or avg. alliance score during a partial/simulated view), then Pre-event OPR; teams with no matches played rank last by Pre-event OPR alone">RP Rank <span class="arrow"></span></th>
+      <th class="num sortable" data-key="avgRp" title="Average ranking points per qual match played (win/tie/loss values are auto-calibrated each run against ftcscout's own averages); blank until a team has played">RP <span class="arrow"></span></th>
+      <th class="sortable" data-key="team" title="Team number — click to open the team's ftcscout.org page for this event in a new tab">Team <span class="arrow"></span></th>
+      <th class="sortable" data-key="name" title="Team name — click to expand this team's match log, predictions, and awards">Name <span class="arrow"></span></th>
+      <th class="num sortable" data-key="oprPrior" title="Best OPR from an earlier event this season; falls back to this event's own OPR if none exists yet (marked * when borrowed)">OPR (Pre) <span class="arrow"></span></th>
+      <th class="num sortable" data-key="oprCalc" title="OPR computed from this event's own played matches only; blank until matches are played">OPR (Event) <span class="arrow"></span></th>
+      <th class="num sortable col-current" data-key="oprCurrent" title="ftcscout's season-wide OPR rating across all of this team's events this season">OPR (All) <span class="arrow"></span></th>
+      <th class="num sortable col-ccwm" data-key="ccwm" title="Calculated Contribution to Winning Margin — same regression as OPR (Event), solved on score margin instead of raw score; estimates contribution to winning margin (captures defense), not just scoring">CCWM <span class="arrow"></span></th>
+      <th class="num sortable col-ftcscout" data-key="oprFtcscout" title="OPR as computed and published by ftcscout.org for this event">OPR (FTCScout) <span class="arrow"></span></th>
+      <th class="num sortable" data-key="strengthOpp" title="Strength of Opponents — average OPR of this team's scheduled opponents">S.O.O. <span class="arrow"></span></th>
+      <th class="num sortable" data-key="strengthPartner" title="Strength of Partner — average OPR of this team's scheduled alliance partners">S.O.P. <span class="arrow"></span></th>
+      <th class="num sortable" data-key="sos" title="Strength of Schedule — S.O.O. minus S.O.P. Since S.O.O. combines the OPR of two scheduled opponents while S.O.P. is just one partner's OPR, S.O.O. runs roughly double S.O.P. for most teams, so S.O.S. will almost always be positive — read it as schedule difficulty, not a balanced net difference.">S.O.S. <span class="arrow"></span></th>
+      <th class="num sortable" data-key="predictedWins" title="Predicted win-loss-toss-up record from the full schedule and the selected OPR source; margins under 10 points count as a toss-up, not a call">Predicted <span class="arrow"></span></th>
+      <th class="num sortable" data-key="actualWins" title="Actual win-loss-tie record so far">Actual <span class="arrow"></span></th>
+      <th class="num sortable" data-key="played" title="Matches played out of matches scheduled (e.g. 4/5) — click to expand this team's match log, predictions, and awards">Played <span class="arrow"></span></th>
     </tr>
   </thead>
   <tbody id="resultsBody"></tbody>
@@ -403,6 +407,11 @@ function buildMatchTable(matches, oprSource) {
         resultCell = '<span class="resultBadge U">Upcoming</span>';
       }
     }
+    // A 3-person playoff alliance's backup still gets a row for this match (same as ftcscout shows
+    // it), tagged to make clear they weren't the ones on the field for it.
+    if (m.onField === false) {
+      resultCell += ' <span class="predTag" title="Alliance backup — not on the field for this match">(backup)</span>';
+    }
     return `<tr>
     <td>${m.match}</td>
     <td>${displayLevel(m.level)}</td>
@@ -547,6 +556,12 @@ function getRowPredicted(r) {
 }
 
 function renderTable() {
+  const mode = currentStrengthMode();
+  // Highlight whichever OPR column (Pre/Event/All) feeds Strength of Schedule/Predicted record right
+  // now, so it's obvious which OPR source the rest of the row's numbers are actually built from.
+  document.querySelector('th[data-key="oprPrior"]').classList.toggle('oprActiveCol', mode === 'prior');
+  document.querySelector('th[data-key="oprCalc"]').classList.toggle('oprActiveCol', mode === 'event');
+  document.querySelector('th[data-key="oprCurrent"]').classList.toggle('oprActiveCol', mode === 'current');
   const derivedKeys = { strengthOpp: 1, strengthPartner: 1, sos: 1 };
   const sorted = [...results].sort((a, b) => {
     let av, bv;
@@ -736,6 +751,27 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     if (m.tournamentLevel !== 'Quals') return false;
     const num = m.matchNumber || m.id;
     return !!m.hasBeenPlayed && typeof num === 'number' && num <= debugLimit;
+  }
+
+  // A playoff alliance can have 3 members (2 starters + a backup who sits out a given match) —
+  // ftcscout tags the sitting-out member with station "NotOnField"/onField:false on that match's team
+  // entry, once it's known. Given one alliance's team entries for a single match, this picks the 2
+  // that actually count for OPR/CCWM/RP/Strength of Opponents-Partner/predictions/actual record: if
+  // ftcscout has flagged exactly 2 as onField:true, use those; otherwise (the match hasn't been
+  // scheduled/started yet, so ftcscout hasn't assigned stations) fall back to Captain + FirstPick, the
+  // alliance's original 2 picks, treating anyone picked after that as the presumed backup. A no-op
+  // whenever there are 2 or fewer entries — a traditional alliance, or the Quals-level "onField:false
+  // is really a no-show" case — so ordinary two-team-alliance events are unaffected either way. The
+  // backup itself still gets its own row in its match log elsewhere (see teamMatches below); this only
+  // controls which 2 team numbers feed the shared math for that match.
+  const starterRoleOrder = { Captain: 0, FirstPick: 1, SecondPick: 2, ThirdPick: 3 };
+  function likelyStarters(entries) {
+    if (entries.length <= 2) return entries;
+    const onFieldTrue = entries.filter(t => t.onField === true);
+    if (onFieldTrue.length === 2) return onFieldTrue;
+    return entries.slice()
+      .sort((a, b) => (starterRoleOrder[a.allianceRole] ?? 99) - (starterRoleOrder[b.allianceRole] ?? 99))
+      .slice(0, 2);
   }
 
   if (!season || !code) {
@@ -947,9 +983,13 @@ document.getElementById('runBtn').addEventListener('click', async () => {
       // finals-only event has no quals at all — the Finals series *is* the entire competition — so
       // it's treated as the "schedule" here too, letting Strength of Schedule and Predicted record
       // (and the per-match predictions in the expanded team view) cover its unplayed matches as well.
+      // A playoff alliance can have 3 members with only 2 on the field per match (see likelyStarters
+      // above) — narrowed down here so S.O.O./S.O.P./S.O.S. and predictions are built from the 2 real
+      // (or best-guess, if not yet assigned) participants, not the alliance's full roster including
+      // its backup.
       matches.forEach(m => {
-        const redEntries = m.teams.filter(t => t.alliance === 'Red');
-        const blueEntries = m.teams.filter(t => t.alliance === 'Blue');
+        const redEntries = likelyStarters(m.teams.filter(t => t.alliance === 'Red'));
+        const blueEntries = likelyStarters(m.teams.filter(t => t.alliance === 'Blue'));
         const redTeams = redEntries.map(t => t.teamNumber);
         const blueTeams = blueEntries.map(t => t.teamNumber);
         const redCredited = excludeSurrogate ? redEntries.filter(t => !t.surrogate).map(t => t.teamNumber) : redTeams;
@@ -1087,10 +1127,16 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     for (const m of matches) {
       if (qualsIncomplete && m.tournamentLevel !== 'Quals') continue;
       const played = effectivePlayed(m);
-      const redEntries = m.teams.filter(t => t.alliance === 'Red');
-      const blueEntries = m.teams.filter(t => t.alliance === 'Blue');
-      const redTeams = redEntries.map(t => t.teamNumber);
-      const blueTeams = blueEntries.map(t => t.teamNumber);
+      // A playoff alliance's backup still gets a row in its own match log, same as ftcscout shows it —
+      // so entries stay unfiltered here — but the partner/opponent OPR sums that feed predictions
+      // (shared by every row tied to this match) come from just the 2 likely starters (see
+      // likelyStarters above), not the alliance's full roster.
+      const redAll = m.teams.filter(t => t.alliance === 'Red');
+      const blueAll = m.teams.filter(t => t.alliance === 'Blue');
+      const redStarters = likelyStarters(redAll);
+      const blueStarters = likelyStarters(blueAll);
+      const redTeams = redStarters.map(t => t.teamNumber);
+      const blueTeams = blueStarters.map(t => t.teamNumber);
       const redScore = played && m.scores && m.scores.red && typeof m.scores.red.totalPoints === 'number' ? m.scores.red.totalPoints : null;
       const blueScore = played && m.scores && m.scores.blue && typeof m.scores.blue.totalPoints === 'number' ? m.scores.blue.totalPoints : null;
       const matchLabel = m.matchNumber || m.id;
@@ -1115,13 +1161,16 @@ document.getElementById('runBtn').addEventListener('click', async () => {
             oppScore,
             result,
             played,
+            // false only for an alliance's backup (a 3-person alliance's non-starter); always true for
+            // a traditional 2-team alliance, since ownTeams already contains every entry there.
+            onField: ownTeams.includes(t),
             rp: rpFor(m.tournamentLevel, played, scoreObj || {}, ownScore, oppScore),
             surrogate: !!e.surrogate
           });
         });
       };
-      addEntries(redEntries, redTeams, blueTeams, redScore, blueScore, m.scores && m.scores.red);
-      addEntries(blueEntries, blueTeams, redTeams, blueScore, redScore, m.scores && m.scores.blue);
+      addEntries(redAll, redTeams, blueTeams, redScore, blueScore, m.scores && m.scores.red);
+      addEntries(blueAll, blueTeams, redTeams, blueScore, redScore, m.scores && m.scores.blue);
     }
     teamIds.forEach(t => teamMatches[t].sort((a, b) => (typeof a.match === 'number' && typeof b.match === 'number') ? a.match - b.match : String(a.match).localeCompare(String(b.match))));
 
@@ -1245,7 +1294,13 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         const rs = m.scores.red.totalPoints, bs = m.scores.blue.totalPoints;
         if (typeof rs !== 'number' || typeof bs !== 'number') continue;
         const redWin = rs > bs, blueWin = bs > rs;
+        // Only the 2 who actually took the field earn a credited result; a backup's own row still
+        // shows this match in their log (see teamMatches above), just without an actual-record credit.
+        const redStarters = new Set(likelyStarters(m.teams.filter(t => t.alliance === 'Red')).map(t => t.teamNumber));
+        const blueStarters = new Set(likelyStarters(m.teams.filter(t => t.alliance === 'Blue')).map(t => t.teamNumber));
         m.teams.forEach(e => {
+          const starters = e.alliance === 'Red' ? redStarters : blueStarters;
+          if (!starters.has(e.teamNumber)) return;
           if (excludeSurrogate && e.surrogate) return;
           const t = e.teamNumber;
           const won = e.alliance === 'Red' ? redWin : blueWin;
@@ -1265,7 +1320,11 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     if (finalsOnlyEvent) {
       matches.forEach(m => {
         if (!effectivePlayed(m)) return;
+        const redStarters = new Set(likelyStarters(m.teams.filter(t => t.alliance === 'Red')).map(t => t.teamNumber));
+        const blueStarters = new Set(likelyStarters(m.teams.filter(t => t.alliance === 'Blue')).map(t => t.teamNumber));
         m.teams.forEach(e => {
+          const starters = e.alliance === 'Red' ? redStarters : blueStarters;
+          if (!starters.has(e.teamNumber)) return;
           if (excludeSurrogate && e.surrogate) return;
           if (playedCount[e.teamNumber] !== undefined) playedCount[e.teamNumber] += 1;
         });
