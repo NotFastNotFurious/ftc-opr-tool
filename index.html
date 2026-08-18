@@ -437,6 +437,20 @@ async function fetchJson(url) {
   return res.json();
 }
 
+// Solves for each team's OPR (or CCWM, same math) via least squares on the normal equations
+// (A^T A) x = A^T s. Early in an event, with far fewer played alliance-rows than teams, this system
+// is underdetermined — e.g. a team on its first-ever match, paired with a partner who's played
+// several others, has only one equation touching it (ownOPR + partnerOPR = allianceScore), which
+// alone can't separate the two. Plain Gauss-Jordan elimination on a singular matrix doesn't fail
+// loudly; it just arbitrarily assigns all the credit to whichever team's column gets pivoted first
+// (in practice, the lower team number) and 0 to the other, which is a real bug, not a fair estimate —
+// verified live against 2025 USGACMP at 9 matches played, where this exact pattern happened. A tiny
+// ridge (Tikhonov) term on the diagonal fixes it: for a genuinely underdetermined pair, it selects the
+// minimum-norm solution, which naturally splits an otherwise-indistinguishable match's score evenly
+// between the two teammates (e.g. 174 becomes ~87/87, not 174/0) — matching what OPR "should" do with
+// too little data to tell them apart. The ridge is small enough (1e-6) that it has no meaningful
+// effect once the system is actually well-determined — verified against a fully-played USGACMP, where
+// every team's OPR moved by at most ~0.00003 (rounding noise, far below the 2-decimal display).
 function solveLeastSquares(rows, teamIds) {
   const idx = new Map(teamIds.map((t, i) => [t, i]));
   const n = teamIds.length;
@@ -449,6 +463,8 @@ function solveLeastSquares(rows, teamIds) {
       for (const cj of cols) AtA[ci][cj] += 1;
     }
   }
+  const RIDGE = 1e-6;
+  for (let i = 0; i < n; i++) AtA[i][i] += RIDGE;
   const M = AtA.map((r, i) => [...r, Ats[i]]);
   for (let col = 0; col < n; col++) {
     let maxRow = col, maxVal = Math.abs(M[col][col]);
