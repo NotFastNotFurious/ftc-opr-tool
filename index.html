@@ -142,7 +142,7 @@
 
 <div class="opts">
   <label><input type="checkbox" id="excludeSurrogate"> Exclude surrogate matches</label>
-  <label><input type="checkbox" id="darkMode" checked> Dark mode</label>
+  <label><input type="checkbox" id="darkMode"> Dark mode</label>
   <div id="debugFieldWrap" style="display:none">
     <label for="debugMatchLimit">Debug: simulate only first N qual matches played (blank = actual)</label>
     <input type="number" id="debugMatchLimit" class="debugField" min="0" placeholder="all played">
@@ -712,13 +712,16 @@ document.getElementById('strengthEvent').addEventListener('change', renderTable)
 document.getElementById('strengthPrior').addEventListener('change', renderTable);
 document.getElementById('strengthCurrent').addEventListener('change', renderTable);
 
-// Dark mode is purely a CSS class toggle (see the CSS custom properties at the top of <style> and
-// the body.dark overrides) — it never touches `results` or triggers a re-fetch, so switching it
-// never loses whatever's already on screen. Always starts from the checkbox's own default (checked
-// = on) on every load — deliberately not remembered across visits, so it can't get stuck showing a
-// stale preference from an earlier version of this page.
+// Dark mode defaults to off (light mode reads better most of the time) — ?dark=Y (or 1/true/yes)
+// overrides that default to start in dark mode instead. Still purely a CSS class toggle (see the CSS
+// custom properties at the top of <style> and the body.dark overrides) — it never touches `results`
+// or triggers a re-fetch, so switching it never loses whatever's already on screen. Not remembered
+// across visits beyond the URL param, so it can't get stuck showing a stale preference from an
+// earlier version of this page.
 (function() {
   const darkModeCheckbox = document.getElementById('darkMode');
+  const darkParamOn = ['y', 'yes', '1', 'true'].includes((urlParams.get('dark') || '').toLowerCase());
+  if (darkParamOn) darkModeCheckbox.checked = true;
   document.body.classList.toggle('dark', darkModeCheckbox.checked);
   darkModeCheckbox.addEventListener('change', () => {
     document.body.classList.toggle('dark', darkModeCheckbox.checked);
