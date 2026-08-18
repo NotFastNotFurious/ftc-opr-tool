@@ -71,7 +71,23 @@
   .opts2 .grp { display: flex; gap: 12px; align-items: center; }
   .opts2 .grp-label { font-size: 12px; color: var(--note-text); margin-right: 2px; }
   .optsSep { color: var(--opts-sep); font-size: 13px; }
-  #log { font-family: ui-monospace, monospace; font-size: 12px; background: var(--log-bg); border-radius: 6px; padding: 10px 12px; min-height: 24px; white-space: pre-wrap; color: var(--log-text); margin-bottom: 20px; }
+  .advanced { margin: 0 0 20px; border: 1px solid var(--opts2-border); border-radius: 6px; background: var(--opts2-bg); }
+  .advanced summary { cursor: pointer; padding: 10px 12px; font-size: 13px; font-weight: 600; color: var(--label-text); list-style: none; }
+  .advanced summary::-webkit-details-marker { display: none; }
+  .advanced summary::before { content: '▸ '; }
+  .advanced[open] summary::before { content: '▾ '; }
+  .advancedBody { padding: 2px 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+  .advancedBody .note { margin: 0; }
+  .advRow label { font-size: 13px; color: var(--label-text); margin-bottom: 4px; }
+  .advRow input[type=text], .advRow input[type=number] { width: 280px; }
+  .advCheckboxRow label { display: flex; align-items: center; gap: 6px; margin: 0; }
+  .advActions { display: flex; align-items: center; gap: 10px; }
+  .logPanel { margin-bottom: 20px; }
+  .logPanel summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--label-text); list-style: none; padding: 2px 0 6px; }
+  .logPanel summary::-webkit-details-marker { display: none; }
+  .logPanel summary::before { content: '▸ '; }
+  .logPanel[open] summary::before { content: '▾ '; }
+  #log { font-family: ui-monospace, monospace; font-size: 12px; background: var(--log-bg); border-radius: 6px; padding: 10px 12px; min-height: 24px; white-space: pre-wrap; color: var(--log-text); }
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
   th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
   th { color: var(--th-text); font-weight: 500; }
@@ -143,10 +159,6 @@
 <div class="opts">
   <label><input type="checkbox" id="excludeSurrogate"> Exclude surrogate matches</label>
   <label><input type="checkbox" id="darkMode"> Dark mode</label>
-  <div id="debugFieldWrap" style="display:none">
-    <label for="debugMatchLimit">Debug: simulate only first N qual matches played (blank = actual)</label>
-    <input type="number" id="debugMatchLimit" class="debugField" min="0" placeholder="all played">
-  </div>
 </div>
 
 <div class="opts2" id="displayOpts" style="display:none">
@@ -166,7 +178,42 @@
   </div>
 </div>
 
-<div id="log"></div>
+<details id="advancedPanel" class="advanced">
+  <summary>Advanced</summary>
+  <div class="advancedBody">
+    <p class="note">These map directly to this page's URL parameters. Fill them in, then <strong>Apply</strong> (reloads with your changes) or <strong>Copy link</strong> to save or share this exact setup for next time — no account or cookies needed, the link itself is the saved setting. The link also remembers your current Season and Event code above, so it reopens to exactly the event you were looking at.</p>
+    <div class="advRow">
+      <label for="debugMatchLimit">Debug: simulate only first N qual matches played</label>
+      <input type="number" id="debugMatchLimit" class="debugField" min="0" placeholder="all played">
+    </div>
+    <div class="advRow advCheckboxRow">
+      <label><input type="checkbox" id="advCcwm"> CCWM</label>
+    </div>
+    <div class="advRow">
+      <label for="advUnplay">Unplay</label>
+      <input type="text" id="advUnplay" placeholder="e.g. 5,12">
+    </div>
+    <div class="advRow">
+      <label for="advHighlight">Highlight team numbers</label>
+      <input type="text" id="advHighlight" placeholder="e.g. 30564,18389,30303">
+    </div>
+    <div class="advRow">
+      <label for="advColor">Default highlight color</label>
+      <input type="text" id="advColor" placeholder="#4B9CD3 (Carolina Blue)">
+    </div>
+    <p class="note">Dark mode uses the toggle above — its current on/off state is included automatically.</p>
+    <div class="advActions">
+      <button type="button" id="advApplyBtn">Apply</button>
+      <button type="button" id="advCopyBtn" class="secondary">Copy link</button>
+      <span id="advCopyConfirm" class="note" style="display:none">Copied!</span>
+    </div>
+  </div>
+</details>
+
+<details id="logPanel" class="logPanel">
+  <summary>Compute Log</summary>
+  <div id="log"></div>
+</details>
 
 <h2 id="eventName"></h2>
 
@@ -249,21 +296,37 @@ let showCcwmCol = false;
 let finalsAllianceCount = 0;
 let debugFlagActive = false;
 let currentEventCode = ''; // used to build each team's ftcscout.org link, e.g. .../teams/24006#FTCCMP1LOVE
+let autoRunOnLoad = false; // set below if ?season= or ?event= was in the URL — see the click() call at the bottom of the script
 
-// The debug field is a testing aid, not something a normal visitor should stumble onto — it only
-// appears when the page is loaded with ?debug=Y (or 1/true/yes) in the URL. CCWM is an experimental
-// column Dean's still deciding on, so it's likewise opt-in only, via ?ccwm=Y (or 1/true/yes). The
-// glossary text below is assembled the same way: it only mentions Debug or CCWM at all when the
-// corresponding flag is actually active, so a normal visitor never sees references to features they
-// can't see or use.
+// The debug field, and the rest of this block, live inside the collapsed "Advanced" <details> panel
+// (see the HTML above), so they're out of the way for a normal visitor without needing a separate
+// show/hide flag. A URL can still pre-fill and reveal them, for a bookmarked/shared link: ?debug=9
+// pre-fills that value; ?ccwm=, ?unplay=, ?highlight=, and ?color= do the same for their own fields.
+// The glossary text below only mentions Debug or CCWM at all when the corresponding flag is actually
+// active, so a normal visitor never sees references to features they haven't turned on.
 (function() {
   const params = new URLSearchParams(window.location.search);
   const flag = name => ['y', 'yes', '1', 'true'].includes((params.get(name) || '').toLowerCase());
-  const debugOn = flag('debug');
+  // ?season= and ?event= let a bookmarked/shared link carry a preferred default event, overriding
+  // this page's built-in Season/Event code values — the same "the link is the saved setting" idea as
+  // the rest of the Advanced panel, just for the two fields that already had their own visible inputs.
+  // If either was actually given, this was clearly a deliberate bookmark rather than a bare visit to
+  // the page, so it also auto-runs Fetch and compute — see autoRunOnLoad at the bottom of the script.
+  if (params.get('season')) { document.getElementById('season').value = params.get('season'); autoRunOnLoad = true; }
+  if (params.get('event')) { document.getElementById('eventCode').value = params.get('event'); autoRunOnLoad = true; }
+  const debugRaw = params.get('debug');
+  const debugNum = debugRaw !== null && /^\d+$/.test(debugRaw.trim()) ? parseInt(debugRaw.trim(), 10) : null;
+  const debugOn = debugNum !== null || flag('debug');
   debugFlagActive = debugOn;
-  if (debugOn) document.getElementById('debugFieldWrap').style.display = '';
+  if (debugNum !== null) document.getElementById('debugMatchLimit').value = debugNum;
   showCcwmCol = flag('ccwm');
+  document.getElementById('advCcwm').checked = showCcwmCol;
   updateCcwmVisibility();
+  document.getElementById('advUnplay').value = params.get('unplay') || '';
+  document.getElementById('advHighlight').value = params.get('highlight') || '';
+  document.getElementById('advColor').value = params.get('color') || '';
+  // The Advanced panel always starts collapsed on every load/refresh, even if it was left open (or
+  // its fields were filled from the URL) before — no open-state to restore, by design.
 
   const parts = [];
   parts.push(`RP = average ranking points per qual match played (tie 1, loss 0; win value and bonus RP are auto-calibrated each run against ftcscout's own averages, since they change by season); blank until a team has played.`);
@@ -712,6 +775,63 @@ document.getElementById('strengthEvent').addEventListener('change', renderTable)
 document.getElementById('strengthPrior').addEventListener('change', renderTable);
 document.getElementById('strengthCurrent').addEventListener('change', renderTable);
 
+// The CCWM checkbox in the Advanced panel takes effect immediately, same as "Show ftcscout opr" —
+// it's just a column show/hide, no re-fetch needed.
+document.getElementById('advCcwm').addEventListener('change', () => {
+  showCcwmCol = document.getElementById('advCcwm').checked;
+  updateCcwmVisibility();
+});
+
+// Debug and Unplay change what gets fetched/computed, and Highlight/Color are read once at page
+// load — all four need a fresh page load to take effect, so Apply rebuilds the URL from the
+// Advanced panel's current field values (plus Dark Mode's current on/off state) and reloads.
+// Copy Link builds the exact same URL without reloading, so the current setup — including ones
+// only entered as plain text, like Highlight/Color — can be bookmarked or shared for next time.
+function buildAdvancedUrl() {
+  const p = new URLSearchParams();
+  const seasonVal = document.getElementById('season').value.trim();
+  if (seasonVal !== '') p.set('season', seasonVal);
+  const eventVal = document.getElementById('eventCode').value.trim();
+  if (eventVal !== '') p.set('event', eventVal);
+  // A numeric debug value in the field wins if present; otherwise, if debug mode is on at all (the
+  // page was loaded with ?debug=Y and the field was left blank), that plain flag is preserved too —
+  // without this fallback, Apply/Copy Link would silently drop out of debug mode.
+  const debugVal = document.getElementById('debugMatchLimit').value.trim();
+  if (debugVal !== '') p.set('debug', debugVal);
+  else if (debugFlagActive) p.set('debug', 'Y');
+  if (document.getElementById('advCcwm').checked) p.set('ccwm', 'Y');
+  const unplayVal = document.getElementById('advUnplay').value.trim();
+  if (unplayVal !== '') p.set('unplay', unplayVal);
+  const highlightVal = document.getElementById('advHighlight').value.trim();
+  if (highlightVal !== '') p.set('highlight', highlightVal);
+  const colorVal = document.getElementById('advColor').value.trim();
+  if (colorVal !== '') p.set('color', colorVal);
+  if (document.getElementById('darkMode').checked) p.set('dark', 'Y');
+  // URLSearchParams percent-encodes every reserved character by default, including , and : — safe,
+  // but not actually necessary for either one here: neither has any special meaning inside a query
+  // value (only & and = do), so browsers read them fine literal, and URLSearchParams.get() on the
+  // reading side decodes %2C/%3A back to ,/: anyway. Un-escaping just those two after the fact keeps
+  // a copied/shared link (e.g. highlight=30564,18389:red) readable instead of full of %2C/%3A noise.
+  const qs = p.toString().replace(/%2C/g, ',').replace(/%3A/g, ':');
+  return window.location.pathname + (qs ? '?' + qs : '');
+}
+document.getElementById('advApplyBtn').addEventListener('click', () => {
+  window.location.href = buildAdvancedUrl();
+});
+document.getElementById('advCopyBtn').addEventListener('click', async () => {
+  const url = window.location.origin + buildAdvancedUrl();
+  const confirmEl = document.getElementById('advCopyConfirm');
+  try {
+    await navigator.clipboard.writeText(url);
+    confirmEl.textContent = 'Copied!';
+  } catch (e) {
+    confirmEl.textContent = 'Could not copy — select and copy the address bar after Apply instead.';
+  }
+  confirmEl.style.display = '';
+  clearTimeout(confirmEl._hideTimer);
+  confirmEl._hideTimer = setTimeout(() => { confirmEl.style.display = 'none'; }, 4000);
+});
+
 // Dark mode defaults to off (light mode reads better most of the time) — ?dark=Y (or 1/true/yes)
 // overrides that default to start in dark mode instead. Still purely a CSS class toggle (see the CSS
 // custom properties at the top of <style> and the body.dark overrides) — it never touches `results`
@@ -730,6 +850,10 @@ document.getElementById('strengthCurrent').addEventListener('change', renderTabl
 
 document.getElementById('runBtn').addEventListener('click', async () => {
   clearLog();
+  // The log panel starts collapsed on every load, but opens up for a fetch that's actually running
+  // so there's something to watch — it stays open afterward too, so the finished log (and any
+  // errors) are still visible until the user collapses it themselves.
+  document.getElementById('logPanel').open = true;
   document.getElementById('resultsTable').style.display = 'none';
   document.getElementById('tableCaption').style.display = 'none';
   document.getElementById('downloadRow').style.display = 'none';
@@ -1447,13 +1571,10 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     const fallbackCount = teamIds.filter(t => priorFallback[t]).length;
     if (fallbackCount) log(`${fallbackCount} team(s) had no earlier event this season, so their "Pre-event OPR" falls back to this event's OPR (marked with * once it exists).`);
     log('Done.');
-    // Collapse the progress log down to just the opening line + "Done." once everything's finished
-    // successfully — it's useful to watch while it's working, but not worth the space afterward.
-    // Left fully expanded when ?debug=Y is set, since that's a testing/troubleshooting context.
-    if (!debugFlagActive) {
-      const firstLine = logEl.textContent.split('\n')[0];
-      logEl.textContent = firstLine + '\nDone.';
-    }
+    // Collapse the log back down once a fetch finishes successfully — it was worth watching while it
+    // ran, but not worth the space afterward. Left open on an error (see the catch block below)
+    // instead, since that's exactly when the log is worth reading.
+    document.getElementById('logPanel').open = false;
 
     document.getElementById('downloadBtn').onclick = () => {
       const mode = currentStrengthMode();
@@ -1514,6 +1635,13 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     document.getElementById('spinner').classList.remove('active');
   }
 });
+
+// A link with ?season= or ?event= is clearly a deliberate bookmark of a specific event, not just a
+// bare visit — so it goes ahead and fetches automatically instead of leaving the user to click
+// "Fetch and compute" themselves after the fields are already filled in correctly. Apply (below)
+// always builds its reload URL with both fields included, so this also covers "fetch when Apply is
+// pushed" — no separate handling needed there.
+if (autoRunOnLoad) document.getElementById('runBtn').click();
 </script>
 
 </body>
