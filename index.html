@@ -790,13 +790,14 @@ function renderTable() {
   });
   const tbody = document.getElementById('resultsBody');
   const fmt = v => v === null || v === undefined ? '—' : v.toFixed(2);
-  // Simple best-of-N (2 alliances): reuse the original red/blue highlight so that already-verified
-  // look stays exactly the same. Full bracket (3+ alliances): gold-highlight just the champion, and
-  // give the rest faint alternating banding so teammates visually group together without implying
-  // rank through color (picking 6+ distinct, readable colors wasn't practical).
+  // Simple best-of-N (2 alliances): color the row by the real station color each alliance actually
+  // played under (see groupColorByKey above) — not by finish order. Falls back to champion=Red only in
+  // the unlikely case no real color was captured at all. Full bracket (3+ alliances): gold-highlight
+  // just the champion, and give the rest faint alternating banding so teammates visually group together
+  // without implying rank through color (picking 6+ distinct, readable colors wasn't practical).
   function finalsRowClassFor(fa) {
     if (!fa) return '';
-    if (finalsAllianceCount === 2) return fa.index === 0 ? 'finalsRedRow' : 'finalsBlueRow';
+    if (finalsAllianceCount === 2) return fa.color ? (fa.color === 'Red' ? 'finalsRedRow' : 'finalsBlueRow') : (fa.index === 0 ? 'finalsRedRow' : 'finalsBlueRow');
     if (fa.isChampion) return 'finalsChampionRow';
     return fa.index % 2 === 0 ? 'finalsAllianceBandA' : 'finalsAllianceBandB';
   }
@@ -1206,6 +1207,14 @@ document.getElementById('runBtn').addEventListener('click', async () => {
       // Win counts per alliance are also tracked, to order the remaining (non-champion) alliances by
       // how far each one got, best guess without fully modeling the bracket's round structure.
       const allianceWins = {};
+      // groupColorByKey tracks which real station color (Red/Blue) each alliance most recently played
+      // under, so the "Red"/"Blue" row styling below can reflect what actually happened on the field —
+      // not just who happened to finish first. Found via a real bug report: an alliance that played
+      // Blue in every one of its matches, then won on the last one, was being shown as "Red" simply
+      // because it got sorted to index 0 (champion-first). Same-alliance color is usually stable across
+      // a series, but if it ever isn't, whichever match is chronologically latest wins, consistent with
+      // how championKey itself is decided below.
+      const groupColorByKey = {};
       let championKey = null, latestTime = null;
       matches.forEach(m => {
         if (!m.hasBeenPlayed || !m.scores || !m.scores.red || !m.scores.blue) return;
@@ -1217,6 +1226,8 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         allianceWins[blueKey] = allianceWins[blueKey] || 0;
         if (rs > bs) allianceWins[redKey]++; else if (bs > rs) allianceWins[blueKey]++;
         const t = m.postResultTime || m.actualStartTime || m.updatedAt;
+        if (!groupColorByKey[redKey] || (t && t > groupColorByKey[redKey].time)) groupColorByKey[redKey] = { color: 'Red', time: t };
+        if (!groupColorByKey[blueKey] || (t && t > groupColorByKey[blueKey].time)) groupColorByKey[blueKey] = { color: 'Blue', time: t };
         if (t && (!latestTime || t > latestTime)) {
           latestTime = t;
           championKey = rs > bs ? redKey : (bs > rs ? blueKey : null);
@@ -1247,7 +1258,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         g.teams.forEach(t => {
           teamIds.push(t);
           finalsRoleByTeam[t] = teamRole[t] || null;
-          finalsAllianceByTeam[t] = { index: gi, isChampion: g.key === championKey };
+          finalsAllianceByTeam[t] = { index: gi, isChampion: g.key === championKey, color: (groupColorByKey[g.key] && groupColorByKey[g.key].color) || null };
         });
       });
 
