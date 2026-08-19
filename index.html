@@ -102,8 +102,10 @@
   .oprActiveCol { background: var(--opr-active-bg); }
   #downloadRow { margin-top: 16px; display: none; }
   .note { font-size: 12px; color: var(--note-text); margin-top: 4px; }
-  .caption { font-size: 12px; color: var(--note-text); margin: 24px 0 12px; padding-top: 12px; border-top: 1px solid var(--caption-border); }
+  .caption { font-size: 12px; color: var(--note-text); margin: 24px 0 12px; padding-top: 12px; border-top: 1px solid var(--caption-border); white-space: pre-line; line-height: 1.6; }
   #eventName { font-size: 28px; font-weight: 700; margin: 16px 0 10px; padding-bottom: 8px; border-bottom: 2px solid var(--border-strong); display: none; }
+  #relatedEvents { display: none; gap: 8px; flex-wrap: wrap; margin: -4px 0 14px; }
+  #relatedEvents button { padding: 5px 10px; font-size: 12px; }
   #forecastBanner { display: none; background: var(--banner-bg); border: 1px solid var(--banner-border); color: var(--banner-text); font-size: 13px; padding: 10px 14px; border-radius: 6px; margin: 0 0 16px; }
   .teamCell { cursor: pointer; }
   .teamCell:hover { text-decoration: underline; color: var(--link-hover); }
@@ -216,6 +218,7 @@
 </details>
 
 <h2 id="eventName"></h2>
+<div id="relatedEvents"></div>
 
 <div id="forecastBanner">No matches have been played at this event yet. OPR (Event) and Actual record will stay blank until matches are played &mdash; everything else, including Strength of Schedule and Predicted record, is already computed from the posted schedule using Pre-event / Current OPR.</div>
 
@@ -289,6 +292,8 @@ let results = [];
 let sortState = { key: 'rank', dir: 'asc' };
 let teamMatches = {};
 let teamAwards = {};
+let playoffRoleByTeam = {}; // teamNumber -> 'Captain'/'FirstPick'/etc., from playoff match data — used to
+                             // label Winner/Finalist awards as "(Captain)"/"(1st Pick)" instead of placement
 let expandedTeams = new Set();
 let oprBySource = { event: {}, prior: {}, current: {} };
 let suppressAwardsInLog = false;
@@ -329,22 +334,28 @@ let autoRunOnLoad = false; // set below if ?season= or ?event= was in the URL �
   // its fields were filled from the URL) before — no open-state to restore, by design.
 
   const parts = [];
-  parts.push(`RP = average ranking points per qual match played (tie 1, loss 0; win value and bonus RP are auto-calibrated each run against ftcscout's own averages, since they change by season); blank until a team has played.`);
-  parts.push(`RP Rank = highest RP first, ties broken by ftcscout's own official tiebreakers once the event is fully complete (or by avg. alliance score during a partial/simulated view), then Pre-event OPR; teams with no matches played rank last, by Pre-event OPR alone — a pure pre-event forecast before play starts${debugOn ? ' (or the debug-simulated subset)' : ''}.`);
-  parts.push(`OPR (Pre-event) = best OPR from an earlier event this season (falls back to this event's OPR if none, marked *). OPR (Event) = OPR from this event's played matches only; blank until played.`);
+  parts.push(`OPR (Pre) = best pre-event OPR; falls back to this event if none (marked *).`);
+  parts.push(`OPR (Event) = OPR from this event's played matches only.`);
+  parts.push(`OPR (All) = ftcscout's season-wide OPR rating.`);
   if (showCcwmCol) {
-    parts.push(`CCWM = same regression as OPR (Event), solved on score margin instead of raw score — estimates contribution to winning margin (captures defense), not just scoring; blank until played.`);
+    parts.push(`CCWM = contribution to winning margin. Margin-based version of OPR.`);
   }
-  parts.push(`OPR (All Season) = ftcscout's season-wide rating. Strength of opponents/partner = average OPR of scheduled opponents/partner; Strength of Schedule = opponents − partner.`);
-  parts.push(`Strength of Schedule/Predicted record use the full schedule and whichever OPR source is selected, so they work pre-match too. Predicted record = W-L-toss-ups; margins under 10 points count as a toss-up, not a call.`);
-  parts.push(`Actual record = real win-loss-tie record so far. Played = matches played/scheduled (e.g. "4/5").`);
-  parts.push(`Excluding surrogates skips a match only for the surrogate team(s), not their partner or opponents.`);
-  parts.push(`Expand a team for its match log (plus awards); unplayed matches show a predicted score/result ("pred."), "?" if the margin's under 10 points, or "Upcoming" if OPR isn't known yet. The small bar next to a predicted result is a rough confidence read (a gut-check, not a fitted model) — fuller and more solid-colored means a more lopsided, confident call.`);
+  parts.push(`RP = average ranking points per qual match played.`);
+  parts.push(`RP Rank = highest RP first, ftcscout tiebreakers, then OPR (Pre); winless teams ranked last by OPR (Pre).`);
+  parts.push(`S.O.O. = average OPR of scheduled opponents.`);
+  parts.push(`S.O.P. = average OPR of scheduled partner.`);
+  parts.push(`S.O.S. = S.O.O. − S.O.P.`);
+  parts.push(`Predicted = predicted W-L from the schedule and selected OPR; under 10 points is a toss-up.`);
+  parts.push(`Actual = real win-loss-tie record so far.`);
+  parts.push(`Played = matches played / scheduled (e.g. "4/5").`);
+  parts.push(`Surrogates = excluding them skips a match for that team's calculations.`);
+  parts.push(`Match Details = expand a team for its matches and awards; unplayed show a predicted score.`);
   if (debugOn) {
-    parts.push(`Debug simulates only the first N qual matches as played; it never fabricates real results.`);
+    parts.push(`Debug = simulates only the first N qual matches played.`);
   }
-  parts.push(`Playoff matches and Awards are hidden until all scheduled quals are played. Click a column header to sort.`);
-  document.getElementById('tableCaption').textContent = parts.join(' ');
+  parts.push(`Playoff matches and Awards are hidden until all scheduled quals are played.`);
+  parts.push(`Click a column header to sort.`);
+  document.getElementById('tableCaption').textContent = parts.join('\n');
 })();
 
 function displayLevel(level) { return level === 'Quals' ? 'Quals' : 'Playoff'; }
@@ -357,14 +368,34 @@ function ordinal(n) {
   const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
+// ftcscout's award records don't carry an alliance-role field, just a placement number (1st/2nd), so
+// "Winner"/"Finalist" alone doesn't say whether a team was the alliance captain or a pick. Cross-
+// referencing playoffRoleByTeam (built from match data above) gives the real answer instead.
+const allianceAwardMeta = {
+  Winner: { medal: '🥇', label: 'Winning Alliance' },
+  Finalist: { medal: '🥈', label: 'Finalist Alliance' },
+  DivisionWinner: { medal: '🥇', label: 'Division Winner' }
+};
+const pickRoleLabel = { Captain: 'Captain', FirstPick: '1st Pick', SecondPick: '2nd Pick', ThirdPick: '3rd Pick' };
 function buildAwardsHtml(awards) {
   // ftcscout's award data is inconsistent event-to-event (it depends on their own scrapers/API
   // picking it up) — when there's nothing for this team, just omit the Awards block entirely rather
   // than asserting "no awards" as if that were a confirmed fact.
   if (!awards || !awards.length) return '';
   const items = awards.map(a => {
-    const parts = [friendlyAwardType(a.type)];
-    if (a.placement) parts.push(`(${ordinal(a.placement)} place)`);
+    const meta = allianceAwardMeta[a.type];
+    const role = meta ? pickRoleLabel[playoffRoleByTeam[a.teamNumber]] : null;
+    const parts = [];
+    if (meta && role) {
+      parts.push(`${meta.medal} ${meta.label} (${role})`);
+    } else if (meta) {
+      // Role not found (e.g. no playoff match data for this team) — fall back to the placement text.
+      parts.push(meta.medal + ' ' + meta.label);
+      if (a.placement) parts.push(`(${ordinal(a.placement)} place)`);
+    } else {
+      parts.push(friendlyAwardType(a.type));
+      if (a.placement) parts.push(`(${ordinal(a.placement)} place)`);
+    }
     if (a.personName) parts.push(`&mdash; ${a.personName}`);
     if (a.divisionName) parts.push(`[${a.divisionName}]`);
     return `<li>${parts.join(' ')}</li>`;
@@ -498,6 +529,57 @@ async function fetchJson(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${url} -> HTTP ${res.status}`);
   return res.json();
+}
+
+// "Related division" nav buttons, similar to ftcscout's own division tabs. ftcscout's public API only
+// exposes a division's own code pointing UP to its parent (divisionCode) — there's no reverse field
+// listing a parent's children, and no search filter for divisionCode either. So: going to the parent
+// is a direct, guaranteed single fetch by that code. Going to siblings/children needs a fuzzy name
+// search (GraphQL eventsSearch's searchText, matched against the event's display name only, not its
+// code) — that search can incidentally return an unrelated event that just shares similar name text,
+// so results are always filtered afterward, keeping only ones whose actual divisionCode confirms the
+// relationship. GraphQL variables (not string interpolation) are used for season/searchText since event
+// names can contain apostrophes/quotes (e.g. "Man o' War Division").
+async function showRelatedEvents(season, eventInfo) {
+  const container = document.getElementById('relatedEvents');
+  if (!eventInfo || !eventInfo.code) return;
+  try {
+    const buttons = [];
+    if (eventInfo.divisionCode) {
+      // This event is itself a division — its parent's code is already known, no search needed.
+      let parent = null;
+      try { parent = await fetchJson(`https://api.ftcscout.org/rest/v1/events/${season}/${eventInfo.divisionCode}`); }
+      catch (e) { /* parent event not found/published yet — skip silently */ }
+      if (parent) buttons.push({ code: parent.code, label: `↑ Parent: ${parent.name} (${parent.code})` });
+    }
+    const searchText = eventInfo.divisionCode ? eventInfo.name.split(' - ')[0] : eventInfo.name;
+    const q = `query($season: Int!, $searchText: String!) { eventsSearch(season: $season, searchText: $searchText, limit: 50) { code name divisionCode } }`;
+    const res = await fetch('https://api.ftcscout.org/graphql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: q, variables: { season: parseInt(season, 10), searchText } })
+    });
+    const json = await res.json();
+    const candidates = (json && json.data && json.data.eventsSearch) || [];
+    const related = candidates.filter(e => e.code !== eventInfo.code && (
+      eventInfo.divisionCode ? e.divisionCode === eventInfo.divisionCode : e.divisionCode === eventInfo.code
+    ));
+    related.forEach(e => {
+      const suffix = e.name.includes(' - ') ? e.name.split(' - ').slice(1).join(' - ') : e.name;
+      buttons.push({ code: e.code, label: `↳ ${suffix} (${e.code})` });
+    });
+    if (!buttons.length) return;
+    container.innerHTML = buttons.map(b => `<button type="button" class="secondary" data-code="${b.code}">${b.label}</button>`).join('');
+    container.style.display = 'flex';
+    container.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.getElementById('eventCode').value = btn.dataset.code;
+        document.getElementById('runBtn').click();
+      });
+    });
+  } catch (e) {
+    log('Could not check for related division events (continuing anyway): ' + e.message);
+  }
 }
 
 // Solves for each team's OPR (or CCWM, same math) via least squares on the normal equations
@@ -859,10 +941,13 @@ document.getElementById('runBtn').addEventListener('click', async () => {
   document.getElementById('downloadRow').style.display = 'none';
   document.getElementById('displayOpts').style.display = 'none';
   document.getElementById('eventName').style.display = 'none';
+  document.getElementById('relatedEvents').style.display = 'none';
+  document.getElementById('relatedEvents').innerHTML = '';
   document.getElementById('forecastBanner').style.display = 'none';
   expandedTeams = new Set();
   teamMatches = {};
   teamAwards = {};
+  playoffRoleByTeam = {};
   const runBtn = document.getElementById('runBtn');
   runBtn.disabled = true;
   document.getElementById('spinner').classList.add('active');
@@ -934,12 +1019,25 @@ document.getElementById('runBtn').addEventListener('click', async () => {
       const eventNameEl = document.getElementById('eventName');
       eventNameEl.textContent = `${eventInfo.name} (${code}, ${season})`;
       eventNameEl.style.display = 'block';
+      showRelatedEvents(season, eventInfo); // fire-and-forget: a button that never appears (or shows up
+                                             // a moment later) shouldn't hold up or fail the main fetch
     }
     const eventStart = eventInfo && eventInfo.start ? eventInfo.start : null;
 
     log('Fetching match data...');
     const matches = await fetchJson(`https://api.ftcscout.org/rest/v1/events/${season}/${code}/matches`);
     log(`Got ${matches.length} total matches.`);
+
+    // A team's pick order within its playoff alliance (Captain/FirstPick/etc.) is stable across that
+    // alliance's whole playoff run, so the first playoff match a team appears in is enough to capture
+    // it. Used to label Winner/Finalist awards below as "(Captain)"/"(1st Pick)" instead of a bare
+    // placement number.
+    matches.forEach(m => {
+      if (m.tournamentLevel === 'Quals') return;
+      (m.teams || []).forEach(t => {
+        if (!playoffRoleByTeam[t.teamNumber] && t.allianceRole) playoffRoleByTeam[t.teamNumber] = t.allianceRole;
+      });
+    });
 
     // What-if analysis via ?unplay= (see effectivePlayed() above, which is where this actually
     // takes effect): report which of the named match numbers are real quals matches at this event.
