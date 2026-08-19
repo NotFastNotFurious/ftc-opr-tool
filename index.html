@@ -552,7 +552,12 @@ async function showRelatedEvents(season, eventInfo) {
       catch (e) { /* parent event not found/published yet — skip silently */ }
       if (parent) buttons.push({ code: parent.code, label: `↑ Parent: ${parent.name} (${parent.code})` });
     }
-    const searchText = eventInfo.divisionCode ? eventInfo.name.split(' - ')[0] : eventInfo.name;
+    // Strip a " - X Division" suffix from the search text whether this event is the parent or a
+    // division — some parents have one too (e.g. FTCCMP1 is literally named "FIRST World Championship
+    // - Finals Division"), and searching on that full string only ever matches itself, since sibling
+    // divisions are named "... - Franklin Division" etc., not "... - Finals Division". A no-op when
+    // there's no " - " in the name at all (e.g. FPERR has none).
+    const searchText = eventInfo.name.split(' - ')[0];
     const q = `query($season: Int!, $searchText: String!) { eventsSearch(season: $season, searchText: $searchText, limit: 50) { code name divisionCode } }`;
     const res = await fetch('https://api.ftcscout.org/graphql', {
       method: 'POST',
