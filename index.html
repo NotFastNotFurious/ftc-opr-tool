@@ -54,6 +54,17 @@
     --spinner-border: #555555; --spinner-top: #e8e8e8;
     --opr-active-bg: rgba(75, 156, 211, 0.22);
   }
+  /* ?wire=Y — recolors structural lines (table borders, panel borders, the event-name underline,
+     button outlines), primary buttons' fill, and the two major headers (the page title and the event
+     name) to Carolina Blue. Purely a CSS class, same mechanism as body.dark, and declared after it so
+     it wins on any custom property both set — wire=Y&dark=Y combines cleanly (primary buttons stay
+     Carolina Blue regardless of dark mode) instead of one silently overriding the other. */
+  body.wire {
+    --border: #4B9CD3; --border-strong: #4B9CD3; --btn-border: #4B9CD3;
+    --opts2-border: #4B9CD3; --caption-border: #4B9CD3; --detail-border: #4B9CD3;
+    --btn-bg: #4B9CD3; --btn-text: #ffffff;
+  }
+  body.wire h1, body.wire #eventName { color: #4B9CD3; }
   body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 1120px; margin: 40px auto; padding: 0 20px; color: var(--text); background: var(--bg); }
   h1 { font-size: 22px; font-weight: 600; }
   .sub { color: var(--sub-text); font-size: 14px; margin-bottom: 24px; }
@@ -387,7 +398,10 @@ function buildAwardsHtml(awards) {
     const role = meta ? pickRoleLabel[playoffRoleByTeam[a.teamNumber]] : null;
     const parts = [];
     if (meta && role) {
-      parts.push(`${meta.medal} ${meta.label} (${role})`);
+      // Division Winner carries a real divisionName (e.g. "Man o' War"); Winner/Finalist don't — fold
+      // it in inline here rather than the generic bracket suffix below, which reads a bit bolted-on.
+      const divPart = a.divisionName ? ` — ${a.divisionName}` : '';
+      parts.push(`${meta.medal} ${meta.label} (${role})${divPart}`);
     } else if (meta) {
       // Role not found (e.g. no playoff match data for this team) — fall back to the placement text.
       parts.push(meta.medal + ' ' + meta.label);
@@ -397,7 +411,7 @@ function buildAwardsHtml(awards) {
       if (a.placement) parts.push(`(${ordinal(a.placement)} place)`);
     }
     if (a.personName) parts.push(`&mdash; ${a.personName}`);
-    if (a.divisionName) parts.push(`[${a.divisionName}]`);
+    if (!(meta && role) && a.divisionName) parts.push(`[${a.divisionName}]`);
     return `<li>${parts.join(' ')}</li>`;
   }).join('');
   return `<div class="awardsBlock"><strong>Awards</strong><ul>${items}</ul></div>`;
@@ -411,6 +425,7 @@ function buildAwardsHtml(awards) {
 // itself falls back to Carolina Blue if omitted or not a valid CSS color. A team's own :color wins
 // if given and valid; an invalid one falls back the same way as no color at all.
 const urlParams = new URLSearchParams(window.location.search);
+const wireOn = ['y', 'yes', '1', 'true'].includes((urlParams.get('wire') || '').toLowerCase());
 function isValidCssColor(str) {
   if (typeof str !== 'string' || !str.trim()) return false;
   const opt = new Option();
@@ -428,6 +443,12 @@ const highlightColors = new Map(); // teamNumber -> color string
   const ownColor = colorStr && isValidCssColor(colorStr.trim()) ? colorStr.trim() : null;
   highlightColors.set(team, ownColor || defaultHighlightColor);
 });
+// wire=Y always highlights team 30564 in Carolina Blue, on top of whatever ?highlight=/?color= already
+// set — but only fills it in when the URL didn't already give 30564 its own entry above, so an
+// explicit highlight/color setting for 30564 always wins over this default.
+if (wireOn && !highlightColors.has(30564)) {
+  highlightColors.set(30564, DEFAULT_HIGHLIGHT_COLOR);
+}
 function favTeamSpan(team, html) {
   return highlightColors.has(team) ? `<span style="color:${highlightColors.get(team)}">${html}</span>` : html;
 }
@@ -934,6 +955,12 @@ document.getElementById('advCopyBtn').addEventListener('click', async () => {
     document.body.classList.toggle('dark', darkModeCheckbox.checked);
   });
 })();
+
+// ?wire=Y (or 1/true/yes) — deliberately URL-only: no checkbox, not in the Advanced panel, and not
+// mentioned in the glossary text. Just a class toggle at load time, same CSS-variable mechanism as
+// dark mode above (see body.wire in <style>). wireOn itself is computed once, up near urlParams, since
+// the highlightColors setup earlier in the script also needs it (30564's default wire=Y highlight).
+document.body.classList.toggle('wire', wireOn);
 
 document.getElementById('runBtn').addEventListener('click', async () => {
   clearLog();
