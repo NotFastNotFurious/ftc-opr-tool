@@ -868,7 +868,14 @@ function renderTable() {
     if (sortState.key === 'finishRank') {
       const aNull = a.finishRank == null, bNull = b.finishRank == null;
       if (aNull || bNull) {
-        if (aNull && bNull) return 0;
+        if (aNull && bNull) {
+          // Teams that never made a playoff alliance all land down here together; order them by
+          // RP Rank (same fallback either sort direction, like the role tiebreak above) instead of
+          // leaving them in whatever incidental order they started in.
+          const aRank = a.rank == null ? Infinity : a.rank;
+          const bRank = b.rank == null ? Infinity : b.rank;
+          return aRank - bRank;
+        }
         return aNull ? 1 : -1; // no finish yet always sorts last, either direction
       }
       const rankCmp = a.finishRank - b.finishRank;
