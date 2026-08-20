@@ -110,6 +110,10 @@
   th.sortable.active .arrow { color: var(--arrow-active); }
   /* Temporarily hidden per Dean's request (2026) to preview the table without RP Rank; not deleted, just toggle this off to bring it back. */
   .col-rank { display: none; }
+  /* Temporarily hidden per Dean's request (2026) to free up horizontal space; the underlying data (and
+     the expand-row click target, which the Team name cell also provides) are untouched, just visually
+     hidden — toggle this off to bring it back. */
+  .col-played { display: none; }
   /* Highlights whichever OPR column (Pre/Event/All) matches the currently-selected Strength Calc radio. */
   .oprActiveCol { background: var(--opr-active-bg); }
   #downloadRow { margin-top: 16px; display: none; }
@@ -257,8 +261,8 @@
       <th class="num sortable" data-key="sos" title="Strength of Schedule — S.O.O. minus S.O.P. Since S.O.O. combines the OPR of two scheduled opponents while S.O.P. is just one partner's OPR, S.O.O. runs roughly double S.O.P. for most teams, so S.O.S. will almost always be positive — read it as schedule difficulty, not a balanced net difference.">S.O.S. <span class="arrow"></span></th>
       <th class="num sortable" data-key="predictedWins" title="Predicted win-loss-toss-up record from the full schedule and the selected OPR source; margins under 10 points count as a toss-up, not a call">Predicted <span class="arrow"></span></th>
       <th class="num sortable" data-key="actualWins" title="Actual win-loss-tie record so far">Actual <span class="arrow"></span></th>
-      <th class="num sortable" data-key="played" title="Matches played out of matches scheduled (e.g. 4/5) — click to expand this team's match log, predictions, and awards">Played <span class="arrow"></span></th>
-      <th class="sortable" data-key="finishRank" title="Playoff finish: Winner/Finalist are named explicitly; every other alliance that made the playoffs just shows its alliance number and pick role (e.g. Alliance 6, 1st Pick) rather than a guessed round name, since the exact round depends on the bracket shape for this many alliances. The order behind the label is still exact, though — it's each alliance's real elimination order (and pick order within an alliance), not win count. Alliance N is the traditional captain-seed number, estimated from each captain's Qual RP Rank (not shown for a finals-only combined event, which has no Qual RP Rank of its own). This estimate is usually right but isn't official — it's flagged '(est.)' at League Tournaments specifically, where the real seeding uses a season-long ranking this tool can't reconstruct from a single event. Blank for teams that never made an alliance, or before playoffs are decided">Finish <span class="arrow"></span></th>
+      <th class="num sortable col-played" data-key="played" title="Matches played out of matches scheduled (e.g. 4/5) — click to expand this team's match log, predictions, and awards">Played <span class="arrow"></span></th>
+      <th class="sortable" data-key="finishRank" title="Playoff finish: Winner/Finalist are named explicitly; every other alliance that made the playoffs just shows its alliance number and pick role (e.g. Alliance 6, 1st Pick) rather than a guessed round name, since the exact round depends on the bracket shape for this many alliances. The order behind the label is still exact, though — it's each alliance's real elimination order (and pick order within an alliance), not win count. Alliance N is the traditional captain-seed number. For a standard 2/4/6/8-alliance double-elimination bracket, it's read directly off the real playoff match structure (which color each alliance played in the early rounds), matching the official seeding. When that's not possible (bracket still early, non-double-elim format, or a finals-only combined event), it falls back to an estimate from each captain's Qual RP Rank, flagged '(est.)'. Blank for teams that never made an alliance, or before playoffs are decided">Finish <span class="arrow"></span></th>
     </tr>
   </thead>
   <tbody id="resultsBody"></tbody>
@@ -312,6 +316,11 @@ let results = [];
 // feature does. Populated in run(); read by the bracket button's click handler, which builds and opens
 // the bracket page on demand rather than pre-rendering it on every fetch.
 let lastPlayoffMatchesForBracket = [];
+// Set in run() alongside allianceNumberByIndex/officialSeedByIndex — read by the bracket button's click
+// handler so it can label each alliance "A#:" with the same real seed number (when available) shown in
+// the main table's Finish column, without having to recompute it from scratch out there.
+let lastPlayoffFinishByTeam = {};
+let lastOfficialSeedByIndex = null;
 let sortState = { key: 'rank', dir: 'asc' };
 let teamMatches = {};
 let teamAwards = {};
@@ -328,9 +337,12 @@ let debugFlagActive = false;
 let currentEventCode = ''; // used to build each team's ftcscout.org link, e.g. .../teams/24006#FTCCMP1LOVE
 // League Tournaments seed alliances using "RS", a ranking that blends a team's best matches across the
 // whole league season with this event's own quals — data this tool has no way to reconstruct from a
-// single event's matches. Our Alliance N guess (captain's event-only Qual RP Rank) can therefore be
-// wrong there in a way it normally isn't elsewhere, so it gets flagged "(est.)" in the label — see
-// where this is read in the Playoff Finish label-building block further down.
+// single event's matches. This used to be the sole trigger for the Alliance N "(est.)" caveat, since our
+// old captain's-Qual-RP-Rank guess (computeAllianceNumbers) could be wrong there in a way it normally
+// wasn't elsewhere. Now that Alliance N is read directly off the real bracket structure when possible
+// (deriveOfficialSeedsByGroupIndex — unaffected by RP-vs-RS, since it doesn't use any ranking at all),
+// that specific problem is resolved and this flag isn't needed for the caveat anymore; kept in case it's
+// useful again later (e.g. surfacing "League Tournament" as a fact in its own right).
 let isLeagueTournamentEvent = false;
 let autoRunOnLoad = false; // set below if ?season= or ?event= was in the URL — see the click() call at the bottom of the script
 
@@ -378,7 +390,6 @@ let autoRunOnLoad = false; // set below if ?season= or ?event= was in the URL �
   parts.push(`S.O.S. = S.O.O. − S.O.P.`);
   parts.push(`Predicted = predicted W-L from the schedule and selected OPR; under 10 points is a toss-up.`);
   parts.push(`Actual = real win-loss-tie record so far.`);
-  parts.push(`Played = matches played / scheduled (e.g. "4/5").`);
   parts.push(`Surrogates = excluding them skips a match for that team's calculations.`);
   parts.push(`Match Details = expand a team for its matches and awards; unplayed show a predicted score.`);
   if (debugOn) {
@@ -693,6 +704,71 @@ function computeAllianceNumbers(playoffFinishByTeam, rankByTeam) {
   return allianceNumberByIndex;
 }
 
+// Official bracket templates, transcribed directly from the FIRST Game Manual - Tournament (Section
+// 13.7, Tables 13-3 through 13-6) — the ONLY 4 alliance counts with a documented double-elim template
+// (Table 13-2: 2/4/6/8 alliances only; other counts don't get a standard bracket at all). Each entry is
+// {red, blue}: the literal Alliance N assigned to red/blue in that chronological playoff match, in
+// official match order (M1, M2, M3...). null means that slot's color is a WINNER/LOSER of a prior match,
+// not a seed directly — those don't tell us a seed number on their own, so they're left out here.
+// "In Round 1, the higher ranked ALLIANCE is assigned to the red ALLIANCE... ranked ALLIANCES are
+// designated, in order, ALLIANCE 1, ALLIANCE 2, etc." (Game Manual, Sec 13.7) — this is the literal
+// source of every entry below.
+const ALLIANCE_SEED_TEMPLATES = {
+  2: [
+    { red: 1, blue: 2 } // Finals match 1 (best-of-3)
+  ],
+  4: [
+    { red: 1, blue: 4 }, // M1
+    { red: 2, blue: 3 }  // M2
+  ],
+  6: [
+    { red: 4, blue: 5 }, // M1
+    { red: 3, blue: 6 }, // M2
+    { red: 1, blue: null }, // M3 (blue = winner of M1)
+    { red: 2, blue: null }  // M4 (blue = winner of M2)
+  ],
+  8: [
+    { red: 1, blue: 8 }, // M1
+    { red: 4, blue: 5 }, // M2
+    { red: 2, blue: 7 }, // M3
+    { red: 3, blue: 6 }  // M4
+  ]
+};
+
+// Reads real, official Alliance seed numbers directly off the bracket template above, using the actual
+// station color each alliance played in the first several chronological playoff matches — NOT an RP-rank
+// approximation. Verified against real USGANWLT (2025) data: mapping its first 4 playoff matches onto
+// the 6-alliance template above exactly reproduces the event's official "Alliance Results" seeding
+// (Alliance 3 = captain 6047), correctly fixing a case where the old RP-rank guess (computeAllianceNumbers)
+// got it wrong — see the chat discussion this came out of. Because this reads real match structure
+// instead of a ranking metric, it's also unaffected by the League Tournament RP-vs-RS discrepancy that
+// motivated the old "(est.)" caveat in the first place.
+// To find which of computePlayoffFinish's alliance groups a template slot's real match belongs to, this
+// looks up just one team from that match's red/blue roster in playoffFinishByTeam — the same trustworthy
+// per-team grouping already used everywhere else in the tool (including through backup-rotation edge
+// cases), rather than re-deriving alliance membership independently.
+function deriveOfficialSeedsByGroupIndex(playoffMatches, allianceCount, playoffFinishByTeam) {
+  const template = ALLIANCE_SEED_TEMPLATES[allianceCount];
+  if (!template || !playoffMatches || !playoffMatches.length) return null;
+  const sorted = playoffMatches.slice().sort((a, b) => a.id - b.id);
+  const seedByIndex = {};
+  for (let i = 0; i < template.length && i < sorted.length; i++) {
+    const m = sorted[i], slot = template[i];
+    const redTeam = m.teams.find(t => t.alliance === 'Red');
+    const blueTeam = m.teams.find(t => t.alliance === 'Blue');
+    if (slot.red != null && redTeam && playoffFinishByTeam[redTeam.teamNumber]) {
+      seedByIndex[playoffFinishByTeam[redTeam.teamNumber].index] = slot.red;
+    }
+    if (slot.blue != null && blueTeam && playoffFinishByTeam[blueTeam.teamNumber]) {
+      seedByIndex[playoffFinishByTeam[blueTeam.teamNumber].index] = slot.blue;
+    }
+  }
+  // Only trust this if every alliance actually got a seed assigned — a bracket that's still early (not
+  // enough playoff matches played yet) shouldn't return a partial/misleading result.
+  if (Object.keys(seedByIndex).length < allianceCount) return null;
+  return seedByIndex;
+}
+
 // EXPERIMENTAL (v20 branch): a real-results playoff bracket, deliberately built WITHOUT trying to
 // guess official alliance seed numbers (see the long chat discussion this came out of) — it only uses
 // data this tool has already verified: real matches, real scores, real station colors. Two things are
@@ -787,14 +863,19 @@ function buildBracketData(matches) {
     (chainByAlliance[n.redKey] = chainByAlliance[n.redKey] || []).push({ id: n.id, color: 'red' });
     (chainByAlliance[n.blueKey] = chainByAlliance[n.blueKey] || []).push({ id: n.id, color: 'blue' });
   });
+  // Each edge also carries the real alliance key it belongs to (not just the from/to/color it's drawn
+  // with) — an edge's (fromNode, color) pair already uniquely identifies one alliance (only one alliance
+  // can occupy "the red side of node 5"), so this never mislabels an edge; it's purely additive, letting
+  // the click-to-highlight-a-run feature in renderBracketHtml pick out exactly this alliance's own lines
+  // without needing to re-derive alliance identity from the edge's node/color alone.
   const edgeSet = new Set();
   const edges = [];
-  Object.values(chainByAlliance).forEach(chain => {
+  Object.entries(chainByAlliance).forEach(([ownerKey, chain]) => {
     for (let i = 0; i < chain.length - 1; i++) {
       const key = chain[i].id + '>' + chain[i + 1].id + ':' + chain[i].color;
       if (edgeSet.has(key)) continue;
       edgeSet.add(key);
-      edges.push({ from: chain[i].id, to: chain[i + 1].id, color: chain[i].color, toColor: chain[i + 1].color });
+      edges.push({ from: chain[i].id, to: chain[i + 1].id, color: chain[i].color, toColor: chain[i + 1].color, allianceKey: ownerKey });
     }
   });
   const lastRoundByAlliance = {};
@@ -833,20 +914,48 @@ function escapeHtml(s) {
 // shape Dean described from having been there. Rather than guess at round-robin standings or a finals
 // structure this tool hasn't verified, this just lists every playoff game in order with a clear note
 // about why it's not drawn as a bracket.
-function renderFallbackBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByTeam) {
-  const allianceLabel = key => (data.allianceTeams[key] || key.split(',').map(Number))
-    .map(t => {
-      const label = escapeHtml(t) + (teamNameByNumber[t] ? ' ' + escapeHtml(teamNameByNumber[t]) : '');
-      const color = highlightColorByTeam && highlightColorByTeam[t];
-      return color ? `<span style="color:${escapeHtml(color)}">${label}</span>` : label;
-    })
-    .join(' &amp; ');
+function renderFallbackBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByTeam, seedByIndex, playoffFinishByTeam, isDarkMode) {
+  // Which real Alliance N (see deriveOfficialSeedsByGroupIndex) this bracket key belongs to, if any team
+  // in it can be traced back to a group with a known official seed — only ever populated for a standard
+  // double-elim bracket, so this fallback view (only used for a nonStandardFormat event) never actually
+  // has one to show, but takes the same params as renderBracketHtml for a consistent call site.
+  const seedForAllianceKey = key => {
+    if (!seedByIndex || !playoffFinishByTeam) return null;
+    const teams = data.allianceTeams[key] || key.split(',').map(Number);
+    for (const t of teams) {
+      const info = playoffFinishByTeam[t];
+      if (info && seedByIndex[info.index] != null) return seedByIndex[info.index];
+    }
+    return null;
+  };
+  const allianceLabel = key => {
+    const teamsHtml = (data.allianceTeams[key] || key.split(',').map(Number))
+      .map(t => {
+        const name = teamNameByNumber[t];
+        const truncatedName = (name && name.length > 15) ? name.slice(0, 15) + '…' : name;
+        const label = escapeHtml(t) + (truncatedName ? ' ' + escapeHtml(truncatedName) : '');
+        const color = highlightColorByTeam && highlightColorByTeam[t];
+        return color ? `<span style="color:${escapeHtml(color)}">${label}</span>` : label;
+      })
+      .join(' &amp; ');
+    const seed = seedForAllianceKey(key);
+    return (seed != null ? `<span class="allianceSeed">A${seed}:</span>` : '') + teamsHtml;
+  };
+  // Full, untruncated alliance/team info for the native title tooltip on hover — the on-card label above
+  // truncates long team names to keep boxes compact, but the tooltip always spells everything out.
+  const allianceTooltip = key => {
+    const seed = seedForAllianceKey(key);
+    const teamsText = (data.allianceTeams[key] || key.split(',').map(Number))
+      .map(t => t + (teamNameByNumber[t] ? ' ' + teamNameByNumber[t] : ''))
+      .join(' & ');
+    return (seed != null ? `Alliance ${seed}: ` : '') + teamsText;
+  };
   const matchCard = g => `
     <div class="matchCard">
       <div class="matchLabel">Match ${escapeHtml(g.label)}</div>
-      <div class="side red ${g.winnerSide === 'red' ? 'winner' : ''}"><span class="teams">${allianceLabel(g.redKey)}</span><span class="score">${g.redScore}</span></div>
+      <div class="side red ${g.winnerSide === 'red' ? 'winner' : ''}" title="${escapeHtml(allianceTooltip(g.redKey))}"><span class="teams">${allianceLabel(g.redKey)}</span><span class="score">${g.redScore}</span></div>
       <div class="vs">vs</div>
-      <div class="side blue ${g.winnerSide === 'blue' ? 'winner' : ''}"><span class="teams">${allianceLabel(g.blueKey)}</span><span class="score">${g.blueScore}</span></div>
+      <div class="side blue ${g.winnerSide === 'blue' ? 'winner' : ''}" title="${escapeHtml(allianceTooltip(g.blueKey))}"><span class="teams">${allianceLabel(g.blueKey)}</span><span class="score">${g.blueScore}</span></div>
     </div>`;
   return `<!DOCTYPE html>
 <html>
@@ -854,22 +963,40 @@ function renderFallbackBracketHtml(data, teamNameByNumber, eventLabel, highlight
 <meta charset="utf-8">
 <title>Playoff Bracket — ${escapeHtml(eventLabel)}</title>
 <style>
-  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 28px; color: #1a1a1a; background: #fff; }
+  /* Mirrors the main page's own --var / body.dark pattern (see its <style> block) so the bracket page
+     can honor whichever Dark Mode state the main page was in when this was opened — see isDarkMode. */
+  :root {
+    --bg: #ffffff; --text: #1a1a1a; --sub-text: #666666; --muted: #888888;
+    --border: #dddddd; --border-strong: #cccccc;
+    --winner-bg: #f4f9f2; --banner-bg: #fdf3e7; --banner-border: #e0b979;
+    --returnbtn-bg: #f7f7f7; --returnbtn-hover: #eeeeee;
+  }
+  body.dark {
+    --bg: #1a1a1a; --text: #e8e8e8; --sub-text: #aaaaaa; --muted: #999999;
+    --border: #3a3a3a; --border-strong: #555555;
+    --winner-bg: #24371f; --banner-bg: #3a3115; --banner-border: #5c4d1f;
+    --returnbtn-bg: #262626; --returnbtn-hover: #333333;
+  }
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 28px; color: var(--text); background: var(--bg); }
   h1 { font-size: 20px; margin: 0 0 4px; }
-  .subtitle { color: #666; font-size: 13px; margin-bottom: 18px; max-width: 760px; }
-  .banner { background: #fdf3e7; border: 1px solid #e0b979; border-radius: 8px; padding: 12px 16px; margin-bottom: 22px; font-size: 13px; max-width: 640px; line-height: 1.5; }
-  .matchCard { display: flex; align-items: center; gap: 10px; border: 1px solid #ddd; border-radius: 6px; padding: 8px 12px; margin-bottom: 8px; max-width: 640px; }
-  .matchLabel { font-size: 11px; color: #888; width: 70px; flex-shrink: 0; }
+  .subtitle { color: var(--sub-text); font-size: 13px; margin-bottom: 18px; max-width: 760px; }
+  .banner { background: var(--banner-bg); border: 1px solid var(--banner-border); border-radius: 8px; padding: 12px 16px; margin-bottom: 22px; font-size: 13px; max-width: 640px; line-height: 1.5; }
+  .matchCard { display: flex; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin-bottom: 8px; max-width: 640px; }
+  .matchLabel { font-size: 11px; color: var(--muted); width: 70px; flex-shrink: 0; }
   .side { flex: 1; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 4px; min-width: 0; }
   .side.red { border-left: 4px solid #d9534f; }
   .side.blue { border-left: 4px solid #4a90d9; }
-  .side.winner { font-weight: 700; background: #f4f9f2; }
-  .vs { color: #999; font-size: 12px; padding: 0 2px; flex-shrink: 0; }
+  .side.winner { font-weight: 700; background: var(--winner-bg); }
+  .vs { color: var(--muted); font-size: 12px; padding: 0 2px; flex-shrink: 0; }
   .teams { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .score { font-size: 14px; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .allianceSeed { color: var(--muted); font-weight: 700; margin-right: 3px; }
+  .returnBtn { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 14px; padding: 6px 12px; font-size: 13px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--returnbtn-bg); color: var(--text); cursor: pointer; }
+  .returnBtn:hover { background: var(--returnbtn-hover); }
 </style>
 </head>
-<body>
+<body class="${isDarkMode ? 'dark' : ''}">
+  <button type="button" class="returnBtn" onclick="if (window.opener &amp;&amp; !window.opener.closed) { window.opener.focus(); } window.close();">&larr; Return to results</button>
   <h1>Playoff Bracket</h1>
   <div class="subtitle">${escapeHtml(eventLabel)}</div>
   <div class="banner">This event's playoff results don't match a standard double-elimination bracket shape — an alliance kept playing after already reaching 2 losses, which a real double-elim format never allows once an alliance is eliminated. This is a known real format (e.g. round-robin playoffs, used at some FIRST Championship divisions), just not one this prototype knows how to draw as a bracket yet. Showing every playoff game in chronological order instead.</div>
@@ -878,25 +1005,64 @@ function renderFallbackBracketHtml(data, teamNameByNumber, eventLabel, highlight
 </html>`;
 }
 
-function renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByTeam) {
-  if (data.nonStandardFormat) return renderFallbackBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByTeam);
-  const allianceLabel = key => (data.allianceTeams[key] || key.split(',').map(Number))
-    .map(t => {
-      const label = escapeHtml(t) + (teamNameByNumber[t] ? ' ' + escapeHtml(teamNameByNumber[t]) : '');
-      const color = highlightColorByTeam && highlightColorByTeam[t];
-      return color ? `<span style="color:${escapeHtml(color)}">${label}</span>` : label;
-    })
-    .join(' &amp; ');
+function renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByTeam, seedByIndex, playoffFinishByTeam, isDarkMode) {
+  if (data.nonStandardFormat) return renderFallbackBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByTeam, seedByIndex, playoffFinishByTeam, isDarkMode);
+  // Which real Alliance N (see deriveOfficialSeedsByGroupIndex, run() in the main script) this bracket
+  // key belongs to, if any team in it traces back to a group with a known official seed. Only ever
+  // populated for a standard double-elim bracket with enough matches played to resolve every seed — the
+  // RP-rank ESTIMATED fallback used elsewhere in the tool is deliberately NOT shown here, so the bracket
+  // only ever states a seed it's actually confident is correct.
+  const seedForAllianceKey = key => {
+    if (!seedByIndex || !playoffFinishByTeam) return null;
+    const teams = data.allianceTeams[key] || key.split(',').map(Number);
+    for (const t of teams) {
+      const info = playoffFinishByTeam[t];
+      if (info && seedByIndex[info.index] != null) return seedByIndex[info.index];
+    }
+    return null;
+  };
+  // truncate defaults to true (used for the compact bracket cards); the Winner box at the top has
+  // plenty of room, so it calls this with truncate=false to show full team names there.
+  const allianceLabel = (key, truncate = true) => {
+    const teamsHtml = (data.allianceTeams[key] || key.split(',').map(Number))
+      .map(t => {
+        const name = teamNameByNumber[t];
+        const truncatedName = (truncate && name && name.length > 15) ? name.slice(0, 15) + '…' : name;
+        const label = escapeHtml(t) + (truncatedName ? ' ' + escapeHtml(truncatedName) : '');
+        const color = highlightColorByTeam && highlightColorByTeam[t];
+        return color ? `<span style="color:${escapeHtml(color)}">${label}</span>` : label;
+      })
+      .join(' &amp; ');
+    const seed = seedForAllianceKey(key);
+    return (seed != null ? `<span class="allianceSeed">A${seed}:</span>` : '') + teamsHtml;
+  };
+  // Full, untruncated alliance/team info for the native title tooltip on hover — the compact bracket
+  // cards truncate long team names to keep boxes a reasonable width, but the tooltip always spells
+  // everything out (no truncation, regardless of the card's own truncate setting).
+  const allianceTooltip = key => {
+    const seed = seedForAllianceKey(key);
+    const teamsText = (data.allianceTeams[key] || key.split(',').map(Number))
+      .map(t => t + (teamNameByNumber[t] ? ' ' + teamNameByNumber[t] : ''))
+      .join(' & ');
+    return (seed != null ? `Alliance ${seed}: ` : '') + teamsText;
+  };
   const gameLine = g => `<div class="gameLine"><span class="gameLabel">#${escapeHtml(g.label)}</span><span class="${g.winnerSide === 'red' ? 'gwin' : ''}">${g.redScore}</span>&ndash;<span class="${g.winnerSide === 'blue' ? 'gwin' : ''}">${g.blueScore}</span></div>`;
+  // data-key on each .side identifies which real alliance (buildBracketData's own key — the same one
+  // used for connector-line routing above) that box belongs to, so the click-to-highlight script below
+  // can find every box a given alliance appears in across the whole bracket without needing seed numbers
+  // or any other lookup — this works even when no official seed was derivable for this event.
   const nodeCard = (n, extraClass) => `
     <div class="node ${n.bracketGroup} ${extraClass || ''}" id="node-${n.id}">
       ${n.games.length > 1 ? `<div class="seriesTag">Series &mdash; ${n.games.length} games</div>` : ''}
-      <div class="side red ${n.seriesWinnerSide === 'red' ? 'winner' : ''}"><span class="teams">${allianceLabel(n.redKey)}</span></div>
-      <div class="side blue ${n.seriesWinnerSide === 'blue' ? 'winner' : ''}"><span class="teams">${allianceLabel(n.blueKey)}</span></div>
+      <div class="side red ${n.seriesWinnerSide === 'red' ? 'winner' : ''}" data-key="${escapeHtml(n.redKey)}" title="${escapeHtml(allianceTooltip(n.redKey))}"><span class="teams">${allianceLabel(n.redKey)}</span></div>
+      <div class="side blue ${n.seriesWinnerSide === 'blue' ? 'winner' : ''}" data-key="${escapeHtml(n.blueKey)}" title="${escapeHtml(allianceTooltip(n.blueKey))}"><span class="teams">${allianceLabel(n.blueKey)}</span></div>
       <div class="games">${n.games.map(gameLine).join('')}</div>
     </div>`;
+  // The Winner box gets the same data-key as its matching .side boxes, so it's picked up by the exact
+  // same click-to-highlight-a-run selector below with no special-case code — clicking it selects the
+  // champion alliance just like clicking any of its boxes elsewhere in the bracket would.
   const championHtml = data.championKey
-    ? `<div class="champion">🏆 Winner: ${allianceLabel(data.championKey)}</div>` : '';
+    ? `<div class="champion" data-key="${escapeHtml(data.championKey)}">🏆 Winner: ${allianceLabel(data.championKey, false)}</div>` : '';
   const edgesJson = JSON.stringify(data.edges);
 
   // A 2-alliance-only event (e.g. two divisions' winners meeting) never has a real upper/lower split —
@@ -915,7 +1081,11 @@ function renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByT
     const finalsNode = (lastNode && lastNode.bracketGroup === 'elimination') ? lastNode : null;
     const upperNodes = data.nodes.filter(n => n.bracketGroup === 'winners' && (!finalsNode || n.id !== finalsNode.id));
     const lowerNodes = data.nodes.filter(n => n.bracketGroup === 'elimination' && (!finalsNode || n.id !== finalsNode.id));
-    const maxRound = data.nodes.reduce((mx, n) => Math.max(mx, n.round), 1);
+    // Computed from upper+lower only, NOT all of data.nodes — the finals node is always the last (and
+    // so highest-round) node chronologically, but it's drawn in its own separate .finalsCol, not either
+    // lane. Including it here left both lanes with one guaranteed-empty trailing round column (e.g.
+    // Round 6 in a 6-alliance bracket, Round 4 in a 4-alliance one) that never had anything to show.
+    const maxRound = upperNodes.concat(lowerNodes).reduce((mx, n) => Math.max(mx, n.round), 1);
     const laneColsHtml = laneNodes => Array.from({ length: maxRound }, (_, i) => i + 1).map(r => `
       <div class="col"><div class="colHeader">Round ${r}</div>${laneNodes.filter(n => n.round === r).map(n => nodeCard(n)).join('')}</div>`).join('');
     bodyHtml = `
@@ -934,38 +1104,62 @@ function renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByT
 <meta charset="utf-8">
 <title>Playoff Bracket — ${escapeHtml(eventLabel)}</title>
 <style>
-  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 28px; color: #1a1a1a; background: #fff; }
+  /* Mirrors the main page's own --var / body.dark pattern (see its <style> block) so the bracket page
+     can honor whichever Dark Mode state the main page was in when this was opened — see isDarkMode. */
+  :root {
+    --bg: #ffffff; --text: #1a1a1a; --sub-text: #666666; --muted: #888888; --muted2: #999999;
+    --border: #dddddd; --border-strong: #cccccc;
+    --card-bg: #ffffff; --elim-bg: #fbfbfb; --winner-bg: #f4f9f2; --highlight-bg: #fff3cd;
+    --champion-bg: #fff8e1; --champion-border: #e8c547;
+    --dashed-border: #e5e5e5;
+    --returnbtn-bg: #f7f7f7; --returnbtn-hover: #eeeeee;
+  }
+  body.dark {
+    --bg: #1a1a1a; --text: #e8e8e8; --sub-text: #aaaaaa; --muted: #999999; --muted2: #888888;
+    --border: #3a3a3a; --border-strong: #555555;
+    --card-bg: #242424; --elim-bg: #202020; --winner-bg: #24371f; --highlight-bg: #4a4126;
+    --champion-bg: #3a3115; --champion-border: #e0c46a;
+    --dashed-border: #3a3a3a;
+    --returnbtn-bg: #262626; --returnbtn-hover: #333333;
+  }
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 28px; color: var(--text); background: var(--bg); }
   h1 { font-size: 20px; margin: 0 0 4px; }
-  .subtitle { color: #666; font-size: 13px; margin-bottom: 18px; max-width: 760px; }
-  .champion { background: #fff8e1; border: 1px solid #e8c547; border-radius: 8px; padding: 12px 16px; margin-bottom: 22px; font-size: 15px; max-width: 640px; }
+  .subtitle { color: var(--sub-text); font-size: 13px; margin-bottom: 18px; max-width: 760px; }
+  .champion { background: var(--champion-bg); border: 1px solid var(--champion-border); border-radius: 8px; padding: 12px 16px; margin-bottom: 22px; font-size: 15px; max-width: 640px; cursor: pointer; }
+  .champion.allianceHighlight { box-shadow: 0 0 0 3px var(--champion-border); }
   #bracketWrap { position: relative; overflow-x: auto; padding-bottom: 8px; }
   #bracketCanvas { display: inline-flex; align-items: center; gap: 40px; padding: 4px 2px; }
   #bracketCanvas.singleSeries { display: block; }
   #connectorSvg { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }
   .lanesStack { display: flex; flex-direction: column; gap: 36px; }
   .lane { display: flex; align-items: center; gap: 14px; }
-  .laneLabel { width: 64px; flex-shrink: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: #999; text-align: right; line-height: 1.3; }
+  .laneLabel { width: 64px; flex-shrink: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted2); text-align: right; line-height: 1.3; }
   .laneCols { display: flex; gap: 40px; }
   .finalsCol { display: flex; flex-direction: column; align-items: center; }
   .col { display: flex; flex-direction: column; justify-content: center; gap: 18px; min-width: 200px; }
-  .colHeader { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: #888; text-align: center; margin-bottom: 4px; }
-  .node { position: relative; z-index: 1; border: 1px solid #ccc; border-radius: 7px; background: #fff; padding: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.06); max-width: 260px; }
-  .node.championNode { border: 2px solid #e8c547; box-shadow: 0 2px 6px rgba(232,197,71,.4); }
-  .seriesTag { font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: .02em; margin-bottom: 3px; }
-  .side { display: flex; align-items: center; padding: 4px 6px; border-radius: 4px; margin-bottom: 2px; }
+  .colHeader { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); text-align: center; margin-bottom: 4px; }
+  .node { position: relative; z-index: 1; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--card-bg); padding: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.06); max-width: 260px; }
+  .node.championNode { border: 2px solid var(--champion-border); box-shadow: 0 2px 6px rgba(232,197,71,.4); }
+  .seriesTag { font-size: 10px; color: var(--muted2); text-transform: uppercase; letter-spacing: .02em; margin-bottom: 3px; }
+  .side { display: flex; align-items: center; padding: 4px 6px; border-radius: 4px; margin-bottom: 2px; cursor: pointer; }
   .side.red { border-left: 3px solid #d9534f; }
   .side.blue { border-left: 3px solid #4a90d9; }
-  .side.winner { font-weight: 700; background: #f4f9f2; }
+  .side.winner { font-weight: 700; background: var(--winner-bg); }
+  .side.allianceHighlight { background: var(--highlight-bg) !important; box-shadow: inset 0 0 0 2px var(--champion-border); }
   .teams { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .games { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; padding-top: 4px; border-top: 1px dashed #e5e5e5; }
-  .gameLine { font-size: 11px; color: #777; font-variant-numeric: tabular-nums; }
-  .gameLabel { color: #bbb; margin-right: 3px; }
-  .gwin { font-weight: 700; color: #1a1a1a; }
-  .node.winners { background: #fff; }
-  .node.elimination { background: #fbfbfb; }
+  .games { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--dashed-border); }
+  .gameLine { font-size: 11px; color: var(--sub-text); font-variant-numeric: tabular-nums; }
+  .gameLabel { color: var(--muted2); margin-right: 3px; }
+  .gwin { font-weight: 700; color: var(--text); }
+  .node.winners { background: var(--card-bg); }
+  .node.elimination { background: var(--elim-bg); }
+  .allianceSeed { color: var(--muted); font-weight: 700; margin-right: 3px; }
+  .returnBtn { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 14px; padding: 6px 12px; font-size: 13px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--returnbtn-bg); color: var(--text); cursor: pointer; }
+  .returnBtn:hover { background: var(--returnbtn-hover); }
 </style>
 </head>
-<body>
+<body class="${isDarkMode ? 'dark' : ''}">
+  <button type="button" class="returnBtn" onclick="if (window.opener &amp;&amp; !window.opener.closed) { window.opener.focus(); } window.close();">&larr; Return to results</button>
   <h1>Playoff Bracket</h1>
   <div class="subtitle">${escapeHtml(eventLabel)} — prototype view built from real match results (lane/round position and winners-vs-elimination grouping are derived from real win/loss counts, not an official FIRST bracket layout or seed numbers)</div>
   ${championHtml}
@@ -976,6 +1170,25 @@ function renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByT
 <${''}script>
   (function() {
     const edges = ${edgesJson};
+    const lineColor = { red: '#d9534f', blue: '#4a90d9' };
+    let selectedKey = null;
+
+    // Shared by both the base lines and the highlight overlay, so a highlighted line sits at exactly
+    // the same spot as the normal one underneath it — anchored at the specific red/blue row an alliance
+    // actually occupies in each card (not the card's overall center), same as before.
+    function edgePath(wrap, wRect, e) {
+      const fromEl = document.getElementById('node-' + e.from);
+      const toEl = document.getElementById('node-' + e.to);
+      if (!fromEl || !toEl) return null;
+      const fromSide = fromEl.querySelector('.side.' + e.color) || fromEl;
+      const toSide = toEl.querySelector('.side.' + e.toColor) || toEl;
+      const fr = fromSide.getBoundingClientRect(), tr = toSide.getBoundingClientRect();
+      const x1 = fr.right - wRect.left + wrap.scrollLeft, y1 = fr.top + fr.height / 2 - wRect.top + wrap.scrollTop;
+      const x2 = tr.left - wRect.left + wrap.scrollLeft, y2 = tr.top + tr.height / 2 - wRect.top + wrap.scrollTop;
+      const midX = (x1 + x2) / 2;
+      return 'M ' + x1 + ' ' + y1 + ' C ' + midX + ' ' + y1 + ', ' + midX + ' ' + y2 + ', ' + x2 + ' ' + y2;
+    }
+
     function draw() {
       const wrap = document.getElementById('bracketWrap');
       const svg = document.getElementById('connectorSvg');
@@ -983,29 +1196,64 @@ function renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByT
       svg.setAttribute('width', wrap.scrollWidth);
       svg.setAttribute('height', wrap.scrollHeight);
       const wRect = wrap.getBoundingClientRect();
-      const lineColor = { red: '#d9534f', blue: '#4a90d9' };
       edges.forEach(e => {
-        const fromEl = document.getElementById('node-' + e.from);
-        const toEl = document.getElementById('node-' + e.to);
-        if (!fromEl || !toEl) return;
-        // Anchor at the specific red/blue row an alliance actually occupies in each card (not the
-        // card's overall center) so a line visibly starts at "the red row" and ends at "the row this
-        // alliance lands in next" — much easier to trace than everything converging on card centers.
-        const fromSide = fromEl.querySelector('.side.' + e.color) || fromEl;
-        const toSide = toEl.querySelector('.side.' + e.toColor) || toEl;
-        const fr = fromSide.getBoundingClientRect(), tr = toSide.getBoundingClientRect();
-        const x1 = fr.right - wRect.left + wrap.scrollLeft, y1 = fr.top + fr.height / 2 - wRect.top + wrap.scrollTop;
-        const x2 = tr.left - wRect.left + wrap.scrollLeft, y2 = tr.top + tr.height / 2 - wRect.top + wrap.scrollTop;
-        const midX = (x1 + x2) / 2;
+        const d = edgePath(wrap, wRect, e);
+        if (!d) return;
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', 'M ' + x1 + ' ' + y1 + ' C ' + midX + ' ' + y1 + ', ' + midX + ' ' + y2 + ', ' + x2 + ' ' + y2);
+        path.setAttribute('d', d);
         path.setAttribute('stroke', lineColor[e.color] || '#bbb');
         path.setAttribute('stroke-width', '2');
         path.setAttribute('fill', 'none');
         path.setAttribute('opacity', '0.75');
         svg.appendChild(path);
       });
+      drawHighlightEdges();
     }
+
+    // Redraws just the selected alliance's connector lines on top of the base ones, as an extra-thick
+    // line in that alliance's own red/blue color — tried a gold-with-colored-outline treatment first,
+    // but it read as odd/busy, so this instead just leans on the same red/blue the base lines already
+    // use, made thick enough to stand out clearly. No-op with nothing drawn when no alliance is
+    // currently selected.
+    function drawHighlightEdges() {
+      const wrap = document.getElementById('bracketWrap');
+      const svg = document.getElementById('connectorSvg');
+      svg.querySelectorAll('[data-highlight-edge]').forEach(el => el.remove());
+      if (!selectedKey) return;
+      const wRect = wrap.getBoundingClientRect();
+      edges.filter(e => e.allianceKey === selectedKey).forEach(e => {
+        const d = edgePath(wrap, wRect, e);
+        if (!d) return;
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', d);
+        path.setAttribute('stroke', lineColor[e.color] || '#bbb');
+        path.setAttribute('stroke-width', '6');
+        path.setAttribute('fill', 'none');
+        path.setAttribute('data-highlight-edge', '1');
+        svg.appendChild(path);
+      });
+    }
+
+    // Click any alliance's box — including the Winner box at the top, which carries the same data-key
+    // as its matching bracket boxes — to highlight (boxes in gold, connector lines thickened in the
+    // alliance's own color) every box AND every connector line that alliance appears in across the whole
+    // bracket: its entire playoff run in one view. Matches purely on data-key (the same real alliance
+    // identity buildBracketData already uses), so this works whether
+    // or not an official "A#" seed was derivable for this event. Clicking the already-selected alliance
+    // again clears the selection; clicking a different one switches to that alliance instead.
+    function selectAlliance(key) {
+      selectedKey = (key === selectedKey) ? null : key;
+      document.querySelectorAll('.allianceHighlight').forEach(el => el.classList.remove('allianceHighlight'));
+      if (selectedKey) {
+        document.querySelectorAll('[data-key="' + selectedKey + '"]').forEach(el => el.classList.add('allianceHighlight'));
+      }
+      drawHighlightEdges();
+    }
+
+    document.querySelectorAll('[data-key]').forEach(el => {
+      el.addEventListener('click', () => selectAlliance(el.getAttribute('data-key')));
+    });
+
     window.addEventListener('load', draw);
     window.addEventListener('resize', draw);
   })();
@@ -1301,7 +1549,7 @@ function renderTable() {
     <td class="num">${st.sos === null ? '—' : (st.sos > 0 ? '+' : '') + st.sos.toFixed(2)}</td>
     <td class="num">${prKnown ? `${pr.w}-${pr.l}${pr.toss ? '-' + pr.toss : ''}` : '—'}</td>
     <td class="num">${arKnown ? `${r.actualWins}-${r.actualLosses}${r.actualTies ? '-' + r.actualTies : ''}` : '—'}</td>
-    <td class="num teamCell" onclick="toggleExpand(${r.team})"><span class="expandArrow">${arrow}</span><strong>${r.scheduled ? `${r.played}/${r.scheduled}` : '—'}</strong></td>
+    <td class="num teamCell col-played" onclick="toggleExpand(${r.team})"><span class="expandArrow">${arrow}</span><strong>${r.scheduled ? `${r.played}/${r.scheduled}` : '—'}</strong></td>
     <td>${r.finishLabel || '—'}</td>
   </tr>`;
     const detailRow = expanded
@@ -1458,7 +1706,10 @@ document.getElementById('bracketBtn').addEventListener('click', () => {
   highlightColors.forEach((color, team) => { highlightColorByTeam[team] = color; });
   const eventNameEl = document.getElementById('eventName');
   const eventLabel = eventNameEl.textContent || currentEventCode;
-  const html = renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByTeam);
+  // Carries the main page's current Dark Mode on/off state into the bracket page too, so it doesn't
+  // open into a jarring light-mode page when the rest of the tool is dark (or vice versa).
+  const isDarkMode = document.body.classList.contains('dark');
+  const html = renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByTeam, lastOfficialSeedByIndex, lastPlayoffFinishByTeam, isDarkMode);
   const w = window.open('', '_blank');
   if (!w) { log('Could not open a new tab for the bracket — check your browser\'s popup blocker.'); return; }
   w.document.write(html);
@@ -1480,6 +1731,8 @@ document.getElementById('runBtn').addEventListener('click', async () => {
   document.getElementById('relatedEvents').innerHTML = '';
   document.getElementById('bracketBtnRow').style.display = 'none';
   lastPlayoffMatchesForBracket = [];
+  lastPlayoffFinishByTeam = {};
+  lastOfficialSeedByIndex = null;
   document.getElementById('forecastBanner').style.display = 'none';
   expandedTeams = new Set();
   teamMatches = {};
@@ -2199,9 +2452,25 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     });
     const rankByTeam = {};
     rankOrder.forEach((t, i) => { rankByTeam[t] = i + 1; });
-    // Alliance 1/2/3... numbers for the Playoff Finish column — see computeAllianceNumbers above for
-    // how/why. finalsOnlyEvent has no Qual RP Rank of its own, so it's skipped there (stays empty).
-    const allianceNumberByIndex = finalsOnlyEvent ? {} : computeAllianceNumbers(playoffFinishByTeam, rankByTeam);
+    // Alliance 1/2/3... numbers for the Playoff Finish column. Preferred source: real official seeds
+    // read directly off the bracket template (deriveOfficialSeedsByGroupIndex) — only possible for a
+    // standard 2/4/6/8-alliance double-elim bracket with enough playoff matches played so far, and
+    // guarded against nonStandardFormat (a round-robin-shaped event like FTCCMP1 can coincidentally have
+    // an alliance count the template also covers, e.g. 6, but its match order doesn't mean what the
+    // template assumes). Falls back to the old RP-rank-based captain guess (computeAllianceNumbers)
+    // otherwise. finalsOnlyEvent has no Qual RP Rank AND no normal playoff bracket of its own, so it's
+    // skipped entirely there (stays empty), same as before.
+    const bracketDataForSeeding = (!finalsOnlyEvent && lastPlayoffMatchesForBracket.length)
+      ? buildBracketData(lastPlayoffMatchesForBracket) : null;
+    const officialSeedByIndex = (bracketDataForSeeding && !bracketDataForSeeding.nonStandardFormat)
+      ? deriveOfficialSeedsByGroupIndex(lastPlayoffMatchesForBracket, playoffFinishGroupCount, playoffFinishByTeam)
+      : null;
+    const usedOfficialSeeds = !!officialSeedByIndex;
+    // Handed to the bracket button's click handler (module scope, outside run()) so the bracket page can
+    // show the same "A#" seed labels the main table's Finish column now uses — see their declarations.
+    lastPlayoffFinishByTeam = playoffFinishByTeam;
+    lastOfficialSeedByIndex = officialSeedByIndex;
+    const allianceNumberByIndex = finalsOnlyEvent ? {} : (officialSeedByIndex || computeAllianceNumbers(playoffFinishByTeam, rankByTeam));
 
     // Used by the expanded match log to predict scores for matches that haven't been played yet,
     // under whichever OPR source the "Strength Calc OPRs" toggle currently has selected.
@@ -2221,16 +2490,16 @@ document.getElementById('runBtn').addEventListener('click', async () => {
       const finishInfo = finalsOnlyEvent
         ? (finalsAllianceByTeam[t] ? { finishRank: finalsAllianceByTeam[t].finishRank, role: finalsRoleByTeam[t] || null } : null)
         : (playoffFinishByTeam[t] || null);
-      // Alliance N (captain-seed number, approximated — see computeAllianceNumbers) alongside the pick
-      // role, e.g. "Finalist (Alliance 3, 1st Pick)". Not available for a finals-only event (no Qual RP
-      // Rank there to seed by), so allianceNumberByIndex is empty and this quietly drops to just the
-      // role, same as before this feature existed.
+      // Alliance N alongside the pick role, e.g. "Finalist (Alliance 3, 1st Pick)". Not available for a
+      // finals-only event (no Qual RP Rank there to seed by), so allianceNumberByIndex is empty and this
+      // quietly drops to just the role, same as before this feature existed.
       const allianceNum = (!finalsOnlyEvent && playoffFinishByTeam[t]) ? allianceNumberByIndex[playoffFinishByTeam[t].index] : null;
-      // At a League Tournament, the real seeding comes from "RS" — a ranking blended across the whole
-      // league season — which this tool can't reconstruct from a single event's matches. Our guess
-      // (captain's event-only Qual RP Rank) is usually right elsewhere but can be wrong there, so it
-      // gets flagged "(est.)" specifically for this event type rather than stated as fact.
-      const allianceNumText = allianceNum ? `Alliance ${allianceNum}${isLeagueTournamentEvent ? ' (est.)' : ''}` : null;
+      // usedOfficialSeeds means this number was read directly off the real bracket structure (see
+      // deriveOfficialSeedsByGroupIndex) — that's authoritative, no caveat needed, including at a League
+      // Tournament (this doesn't depend on RP Rank at all, so it isn't affected by the RP-vs-RS
+      // discrepancy that motivated the old caveat). Otherwise this is still just the RP-rank-based
+      // captain guess (computeAllianceNumbers), which can be wrong, so it stays flagged "(est.)".
+      const allianceNumText = allianceNum ? `Alliance ${allianceNum}${usedOfficialSeeds ? '' : ' (est.)'}` : null;
       const finishParen = [
         allianceNumText,
         (finishInfo && finishInfo.role && pickRoleLabel[finishInfo.role]) ? pickRoleLabel[finishInfo.role] : null
@@ -2297,9 +2566,12 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     // playoff match AND it actually looks like a standard double-elim bracket (see
     // buildBracketData's nonStandardFormat check) — a round-robin-style event like FTCCMP1 doesn't
     // get a bracket button at all, rather than a button that opens something misleading. Cheap to
-    // compute here since buildBracketData is pure JS with no network calls.
+    // compute here since buildBracketData is pure JS with no network calls. A 2-alliance event (a
+    // finals-only combined event like FPERR, or any small event whose playoffs are just two alliances)
+    // never has a real bracket shape to show — just one best-of-3 series — so the button is skipped
+    // there too, same as the nonStandardFormat case.
     const bracketPreview = lastPlayoffMatchesForBracket.length ? buildBracketData(lastPlayoffMatchesForBracket) : null;
-    document.getElementById('bracketBtnRow').style.display = (bracketPreview && !bracketPreview.nonStandardFormat) ? 'flex' : 'none';
+    document.getElementById('bracketBtnRow').style.display = (bracketPreview && !bracketPreview.nonStandardFormat && bracketPreview.allianceCount > 2) ? 'flex' : 'none';
 
     const fallbackCount = teamIds.filter(t => priorFallback[t]).length;
     if (fallbackCount) log(`${fallbackCount} team(s) had no earlier event this season, so their "Pre-event OPR" falls back to this event's OPR (marked with * once it exists).`);
