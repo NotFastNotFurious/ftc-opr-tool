@@ -110,6 +110,10 @@
   th.sortable.active .arrow { color: var(--arrow-active); }
   /* Temporarily hidden per Dean's request (2026) to preview the table without RP Rank; not deleted, just toggle this off to bring it back. */
   .col-rank { display: none; }
+  /* Temporarily hidden per Dean's request (2026) to free up horizontal space; the underlying data (and
+     the expand-row click target, which the Team name cell also provides) are untouched, just visually
+     hidden — toggle this off to bring it back. */
+  .col-played { display: none; }
   /* Highlights whichever OPR column (Pre/Event/All) matches the currently-selected Strength Calc radio. */
   .oprActiveCol { background: var(--opr-active-bg); }
   #downloadRow { margin-top: 16px; display: none; }
@@ -252,8 +256,8 @@
       <th class="num sortable" data-key="sos" title="Strength of Schedule — S.O.O. minus S.O.P. Since S.O.O. combines the OPR of two scheduled opponents while S.O.P. is just one partner's OPR, S.O.O. runs roughly double S.O.P. for most teams, so S.O.S. will almost always be positive — read it as schedule difficulty, not a balanced net difference.">S.O.S. <span class="arrow"></span></th>
       <th class="num sortable" data-key="predictedWins" title="Predicted win-loss-toss-up record from the full schedule and the selected OPR source; margins under 10 points count as a toss-up, not a call">Predicted <span class="arrow"></span></th>
       <th class="num sortable" data-key="actualWins" title="Actual win-loss-tie record so far">Actual <span class="arrow"></span></th>
-      <th class="num sortable" data-key="played" title="Matches played out of matches scheduled (e.g. 4/5) — click to expand this team's match log, predictions, and awards">Played <span class="arrow"></span></th>
-      <th class="sortable" data-key="finishRank" title="Playoff finish: Winner/Finalist are named explicitly; every other alliance that made the playoffs just shows its alliance number and pick role (e.g. Alliance 6, 1st Pick) rather than a guessed round name, since the exact round depends on the bracket shape for this many alliances. The order behind the label is still exact, though — it's each alliance's real elimination order (and pick order within an alliance), not win count. Alliance N is the traditional captain-seed number, approximated from each captain's Qual RP Rank (not shown for a finals-only combined event, which has no Qual RP Rank of its own). Blank for teams that never made an alliance, or before playoffs are decided">Finish <span class="arrow"></span></th>
+      <th class="num sortable col-played" data-key="played" title="Matches played out of matches scheduled (e.g. 4/5) — click to expand this team's match log, predictions, and awards">Played <span class="arrow"></span></th>
+      <th class="sortable" data-key="finishRank" title="Playoff finish: Winner/Finalist are named explicitly; every other alliance that made the playoffs just shows its alliance number and pick role (e.g. Alliance 6, 1st Pick) rather than a guessed round name, since the exact round depends on the bracket shape for this many alliances. The order behind the label is still exact, though — it's each alliance's real elimination order (and pick order within an alliance), not win count. Alliance N is the traditional captain-seed number, estimated from each captain's Qual RP Rank (not shown for a finals-only combined event, which has no Qual RP Rank of its own). This estimate is usually right but isn't official — it's flagged '(est.)' at League Tournaments specifically, where the real seeding uses a season-long ranking this tool can't reconstruct from a single event. Blank for teams that never made an alliance, or before playoffs are decided">Finish <span class="arrow"></span></th>
     </tr>
   </thead>
   <tbody id="resultsBody"></tbody>
@@ -316,6 +320,12 @@ let playoffFinishGroupCount = 0; // groupCount from computePlayoffFinish, for ro
                                   // normal event's table is sorted by Playoff Finish (see renderTable)
 let debugFlagActive = false;
 let currentEventCode = ''; // used to build each team's ftcscout.org link, e.g. .../teams/24006#FTCCMP1LOVE
+// League Tournaments seed alliances using "RS", a ranking that blends a team's best matches across the
+// whole league season with this event's own quals — data this tool has no way to reconstruct from a
+// single event's matches. Our Alliance N guess (captain's event-only Qual RP Rank) can therefore be
+// wrong there in a way it normally isn't elsewhere, so it gets flagged "(est.)" in the label — see
+// where this is read in the Playoff Finish label-building block further down.
+let isLeagueTournamentEvent = false;
 let autoRunOnLoad = false; // set below if ?season= or ?event= was in the URL — see the click() call at the bottom of the script
 
 // The debug field, and the rest of this block, live inside the collapsed "Advanced" <details> panel
@@ -362,7 +372,6 @@ let autoRunOnLoad = false; // set below if ?season= or ?event= was in the URL �
   parts.push(`S.O.S. = S.O.O. − S.O.P.`);
   parts.push(`Predicted = predicted W-L from the schedule and selected OPR; under 10 points is a toss-up.`);
   parts.push(`Actual = real win-loss-tie record so far.`);
-  parts.push(`Played = matches played / scheduled (e.g. "4/5").`);
   parts.push(`Surrogates = excluding them skips a match for that team's calculations.`);
   parts.push(`Match Details = expand a team for its matches and awards; unplayed show a predicted score.`);
   if (debugOn) {
@@ -964,7 +973,7 @@ function renderTable() {
     <td class="num">${st.sos === null ? '—' : (st.sos > 0 ? '+' : '') + st.sos.toFixed(2)}</td>
     <td class="num">${prKnown ? `${pr.w}-${pr.l}${pr.toss ? '-' + pr.toss : ''}` : '—'}</td>
     <td class="num">${arKnown ? `${r.actualWins}-${r.actualLosses}${r.actualTies ? '-' + r.actualTies : ''}` : '—'}</td>
-    <td class="num teamCell" onclick="toggleExpand(${r.team})"><span class="expandArrow">${arrow}</span><strong>${r.scheduled ? `${r.played}/${r.scheduled}` : '—'}</strong></td>
+    <td class="num teamCell col-played" onclick="toggleExpand(${r.team})"><span class="expandArrow">${arrow}</span><strong>${r.scheduled ? `${r.played}/${r.scheduled}` : '—'}</strong></td>
     <td>${r.finishLabel || '—'}</td>
   </tr>`;
     const detailRow = expanded
@@ -1191,6 +1200,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     let eventInfo = null;
     try { eventInfo = await fetchJson(`https://api.ftcscout.org/rest/v1/events/${season}/${code}`); }
     catch (e) { log('Could not fetch event info (continuing anyway): ' + e.message); }
+    isLeagueTournamentEvent = !!(eventInfo && eventInfo.type === 'LeagueTournament');
     if (eventInfo && eventInfo.name) {
       log(`Event: ${eventInfo.name}`);
       const eventNameEl = document.getElementById('eventName');
@@ -1858,8 +1868,13 @@ document.getElementById('runBtn').addEventListener('click', async () => {
       // Rank there to seed by), so allianceNumberByIndex is empty and this quietly drops to just the
       // role, same as before this feature existed.
       const allianceNum = (!finalsOnlyEvent && playoffFinishByTeam[t]) ? allianceNumberByIndex[playoffFinishByTeam[t].index] : null;
+      // At a League Tournament, the real seeding comes from "RS" — a ranking blended across the whole
+      // league season — which this tool can't reconstruct from a single event's matches. Our guess
+      // (captain's event-only Qual RP Rank) is usually right elsewhere but can be wrong there, so it
+      // gets flagged "(est.)" specifically for this event type rather than stated as fact.
+      const allianceNumText = allianceNum ? `Alliance ${allianceNum}${isLeagueTournamentEvent ? ' (est.)' : ''}` : null;
       const finishParen = [
-        allianceNum ? `Alliance ${allianceNum}` : null,
+        allianceNumText,
         (finishInfo && finishInfo.role && pickRoleLabel[finishInfo.role]) ? pickRoleLabel[finishInfo.role] : null
       ].filter(Boolean).join(', ');
       // Champion/Finalist keep the named word plus the alliance/role parenthetical, e.g.
