@@ -100,9 +100,10 @@
   .logPanel[open] summary::before { content: '▾ '; }
   #log { font-family: ui-monospace, monospace; font-size: 12px; background: var(--log-bg); border-radius: 6px; padding: 10px 12px; min-height: 24px; white-space: pre-wrap; color: var(--log-text); }
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  th, td { text-align: left; padding: 6px 7px; border-bottom: 1px solid var(--border); }
   th { color: var(--th-text); font-weight: 500; }
   td.num, th.num { text-align: right; }
+  .rowNum { white-space: nowrap; }
   th.sortable { cursor: pointer; user-select: none; }
   th.sortable:hover { color: var(--th-hover); }
   th.sortable .arrow { display: inline-block; width: 12px; color: var(--arrow); }
@@ -236,7 +237,7 @@
 <table id="resultsTable" style="display:none">
   <thead>
     <tr>
-      <th class="num" title="Row number in the current sort order"></th>
+      <th class="num" title="Row number in the current sort order. When sorted by something other than RP Rank or RP, the RP Rank is shown in parentheses, e.g. &quot;2 (3)&quot; for a team ranked 3rd by RP but shown 2nd in this sort"></th>
       <th class="num sortable col-rank" data-key="rank" title="Rank by RP, using ftcscout's official tiebreakers once the event is complete (or avg. alliance score during a partial/simulated view), then Pre-event OPR; teams with no matches played rank last by Pre-event OPR alone">RP Rank <span class="arrow"></span></th>
       <th class="num sortable" data-key="avgRp" title="Average ranking points per qual match played (win/tie/loss values are auto-calibrated each run against ftcscout's own averages); blank until a team has played">RP <span class="arrow"></span></th>
       <th class="sortable" data-key="team" title="Team number — click to open the team's ftcscout.org page for this event in a new tab">Team <span class="arrow"></span></th>
@@ -252,6 +253,7 @@
       <th class="num sortable" data-key="predictedWins" title="Predicted win-loss-toss-up record from the full schedule and the selected OPR source; margins under 10 points count as a toss-up, not a call">Predicted <span class="arrow"></span></th>
       <th class="num sortable" data-key="actualWins" title="Actual win-loss-tie record so far">Actual <span class="arrow"></span></th>
       <th class="num sortable" data-key="played" title="Matches played out of matches scheduled (e.g. 4/5) — click to expand this team's match log, predictions, and awards">Played <span class="arrow"></span></th>
+      <th class="sortable" data-key="finishRank" title="Playoff finish: Winner/Finalist are named explicitly; every other alliance that made the playoffs just shows its alliance number and pick role (e.g. Alliance 6, 1st Pick) rather than a guessed round name, since the exact round depends on the bracket shape for this many alliances. The order behind the label is still exact, though — it's each alliance's real elimination order (and pick order within an alliance), not win count. Alliance N is the traditional captain-seed number, approximated from each captain's Qual RP Rank (not shown for a finals-only combined event, which has no Qual RP Rank of its own). Blank for teams that never made an alliance, or before playoffs are decided">Finish <span class="arrow"></span></th>
     </tr>
   </thead>
   <tbody id="resultsBody"></tbody>
@@ -310,6 +312,8 @@ let oprBySource = { event: {}, prior: {}, current: {} };
 let suppressAwardsInLog = false;
 let showCcwmCol = false;
 let finalsAllianceCount = 0;
+let playoffFinishGroupCount = 0; // groupCount from computePlayoffFinish, for row banding/gold when a
+                                  // normal event's table is sorted by Playoff Finish (see renderTable)
 let debugFlagActive = false;
 let currentEventCode = ''; // used to build each team's ftcscout.org link, e.g. .../teams/24006#FTCCMP1LOVE
 let autoRunOnLoad = false; // set below if ?season= or ?event= was in the URL — see the click() call at the bottom of the script
@@ -552,49 +556,155 @@ async function fetchJson(url) {
   return res.json();
 }
 
-// "Related division" nav buttons, similar to ftcscout's own division tabs. ftcscout's public API only
-// exposes a division's own code pointing UP to its parent (divisionCode) — there's no reverse field
-// listing a parent's children, and no search filter for divisionCode either. So: going to the parent
-// is a direct, guaranteed single fetch by that code. Going to siblings/children needs a fuzzy name
-// search (GraphQL eventsSearch's searchText, matched against the event's display name only, not its
-// code) — that search can incidentally return an unrelated event that just shares similar name text,
-// so results are always filtered afterward, keeping only ones whose actual divisionCode confirms the
-// relationship. GraphQL variables (not string interpolation) are used for season/searchText since event
-// names can contain apostrophes/quotes (e.g. "Man o' War Division").
+// Champion/Finalist get named explicitly; every other alliance that made the playoffs is generically
+// "Eliminated" rather than a guessed round name ("Semifinalist"/"Quarterfinalist" depends on FIRST's
+// official bracket template for that specific alliance count — several shapes exist, some with byes —
+// and hardcoding those isn't worth the risk of getting one wrong). The order underneath the label is
+// still exact, though: see computePlayoffFinish below.
+function finishLabelFor(rank) {
+  return rank === 1 ? 'Winner' : rank === 2 ? 'Finalist' : 'Eliminated';
+}
+
+// Playoff finish for every team in a normal quals+playoffs event — same id-based elimination-order
+// logic already verified for the finals-only-event branch further down (real station color, real
+// elimination order rather than win count — see the comments there for the "why"). Kept as a separate,
+// self-contained copy rather than sharing code with that branch: the two run in different contexts (the
+// finals-only branch is deriving its ENTIRE team roster from playoff matches, since there's no Quals
+// roster to start from; this one is layering a finish result on top of a roster that already exists
+// from Quals), so a shared helper would need to awkwardly serve both shapes. Returns {} when there's no
+// decided playoff result yet — including the entire time ?debug=N is simulating an in-progress event.
+// isPlayed defaults to the match's real hasBeenPlayed flag, but the caller passes effectivePlayed()
+// instead so debug mode's "pretend this hasn't happened yet" applies here too — effectivePlayed()
+// already always returns false for a non-Quals match once a debug limit is set, so Finish just comes
+// back empty during any debug-simulated view, the same way OPR/rank/predictions do. Also tracks each
+// alliance's real station color (see groupColorByKey in the finals-only branch below for the "why"), so
+// the same finalsRowClassFor() row banding/gold-highlight can be reused here when the table is sorted by
+// Playoff Finish. Returns { byTeam, groupCount } — byTeam maps teamNumber to
+// { finishRank, role, index, isChampion, color }, shaped to match what finalsRowClassFor() expects.
+function computePlayoffFinish(matches, isPlayed) {
+  isPlayed = isPlayed || (m => m.hasBeenPlayed);
+  const empty = { byTeam: {}, groupCount: 0 };
+  const playoffMatches = matches.filter(m => m.tournamentLevel !== 'Quals');
+  if (!playoffMatches.length) return empty;
+  const allianceKey = teamNums => teamNums.slice().sort((x, y) => x - y).join(',');
+  const teamAllianceTeams = {};
+  const teamRole = {};
+  const allTeams = new Set();
+  playoffMatches.forEach(m => {
+    const red = m.teams.filter(t => t.alliance === 'Red').map(t => t.teamNumber);
+    const blue = m.teams.filter(t => t.alliance === 'Blue').map(t => t.teamNumber);
+    m.teams.forEach(t => {
+      allTeams.add(t.teamNumber);
+      if (!teamAllianceTeams[t.teamNumber]) teamAllianceTeams[t.teamNumber] = t.alliance === 'Red' ? red : blue;
+      if (!teamRole[t.teamNumber]) teamRole[t.teamNumber] = t.allianceRole || null;
+    });
+  });
+
+  const allianceWins = {};
+  const lastIdByKey = {};
+  const groupColorByKey = {};
+  let championKey = null, latestId = null;
+  playoffMatches.forEach(m => {
+    if (!isPlayed(m) || !m.scores || !m.scores.red || !m.scores.blue) return;
+    const rs = m.scores.red.totalPoints, bs = m.scores.blue.totalPoints;
+    if (typeof rs !== 'number' || typeof bs !== 'number') return;
+    const redKey = allianceKey(m.teams.filter(t => t.alliance === 'Red').map(t => t.teamNumber));
+    const blueKey = allianceKey(m.teams.filter(t => t.alliance === 'Blue').map(t => t.teamNumber));
+    allianceWins[redKey] = allianceWins[redKey] || 0;
+    allianceWins[blueKey] = allianceWins[blueKey] || 0;
+    if (rs > bs) allianceWins[redKey]++; else if (bs > rs) allianceWins[blueKey]++;
+    const mid = m.id;
+    if (mid != null) {
+      if (lastIdByKey[redKey] == null || mid > lastIdByKey[redKey]) lastIdByKey[redKey] = mid;
+      if (lastIdByKey[blueKey] == null || mid > lastIdByKey[blueKey]) lastIdByKey[blueKey] = mid;
+      if (!groupColorByKey[redKey] || mid > groupColorByKey[redKey].id) groupColorByKey[redKey] = { color: 'Red', id: mid };
+      if (!groupColorByKey[blueKey] || mid > groupColorByKey[blueKey].id) groupColorByKey[blueKey] = { color: 'Blue', id: mid };
+      if (latestId == null || mid > latestId) {
+        latestId = mid;
+        championKey = rs > bs ? redKey : (bs > rs ? blueKey : null);
+      }
+    }
+  });
+  if (championKey === null) return empty; // no decided playoff result yet
+
+  const groupsByKey = {};
+  allTeams.forEach(t => {
+    const teams = teamAllianceTeams[t] || [t];
+    const key = allianceKey(teams);
+    if (!groupsByKey[key]) groupsByKey[key] = { key, teams: [...new Set(teams)], wins: allianceWins[key] || 0, lastId: lastIdByKey[key] ?? null };
+  });
+  const orderedGroups = Object.values(groupsByKey).sort((a, b) => {
+    const aChamp = a.key === championKey, bChamp = b.key === championKey;
+    if (aChamp !== bChamp) return aChamp ? -1 : 1;
+    if (a.lastId !== b.lastId) {
+      if (a.lastId == null) return 1;
+      if (b.lastId == null) return -1;
+      return b.lastId - a.lastId;
+    }
+    if (b.wins !== a.wins) return b.wins - a.wins; // last-resort tiebreak
+    return a.teams[0] - b.teams[0]; // deterministic final tiebreak
+  });
+
+  const byTeam = {};
+  orderedGroups.forEach((g, gi) => {
+    const finishRank = gi + 1;
+    const color = (groupColorByKey[g.key] && groupColorByKey[g.key].color) || null;
+    g.teams.forEach(t => { byTeam[t] = { finishRank, role: teamRole[t] || null, index: gi, isChampion: g.key === championKey, color }; });
+  });
+  return { byTeam, groupCount: orderedGroups.length };
+}
+
+// Alliance 1/2/3... — the traditional captain-seed numbering from alliance selection, shown alongside
+// Playoff Finish. ftcscout's API has no field for the real, official seed number (confirmed via schema
+// introspection — there's no Alliance type at all), so this approximates it from each alliance's
+// captain's own Qual RP Rank at this event: the best-ranked captain becomes Alliance 1, and so on. Right
+// whenever captains picked in RP Rank order, which is the common case; can be off if a higher-ranked
+// team declined captaincy and a lower-ranked team captained in their place. Only meaningful for a normal
+// quals+playoffs event — a finals-only combined event (see finalsOnlyEvent below) has no Qual RP Rank of
+// its own to seed by, so this is intentionally not computed for that case.
+function computeAllianceNumbers(playoffFinishByTeam, rankByTeam) {
+  const captainByIndex = {};
+  Object.entries(playoffFinishByTeam).forEach(([team, info]) => {
+    if (info.role === 'Captain') captainByIndex[info.index] = Number(team);
+  });
+  const groups = Object.entries(captainByIndex).map(([index, captainTeam]) => ({
+    index: Number(index),
+    rank: (rankByTeam[captainTeam] != null) ? rankByTeam[captainTeam] : Infinity
+  }));
+  groups.sort((a, b) => a.rank - b.rank);
+  const allianceNumberByIndex = {};
+  groups.forEach((g, i) => { allianceNumberByIndex[g.index] = i + 1; });
+  return allianceNumberByIndex;
+}
+
+// "Related division" nav buttons, similar to ftcscout's own division tabs. v10 derived this via a
+// fuzzy GraphQL name search filtered by divisionCode, since the public REST API has no reverse
+// parent->children field. ftcscout's GraphQL schema turns out to have exactly this precomputed already
+// — Event.relatedEvents — verified live: querying a division returns its parent (divisionCode: null)
+// plus true siblings, querying the parent returns all its children, and a plain non-division event
+// returns []. One query, no name-matching, no false positives (confirmed against FTCCMP1, whose own
+// name — "FIRST World Championship - Finals Division" — broke the old name-search approach).
 async function showRelatedEvents(season, eventInfo) {
   const container = document.getElementById('relatedEvents');
   if (!eventInfo || !eventInfo.code) return;
   try {
-    const buttons = [];
-    if (eventInfo.divisionCode) {
-      // This event is itself a division — its parent's code is already known, no search needed.
-      let parent = null;
-      try { parent = await fetchJson(`https://api.ftcscout.org/rest/v1/events/${season}/${eventInfo.divisionCode}`); }
-      catch (e) { /* parent event not found/published yet — skip silently */ }
-      if (parent) buttons.push({ code: parent.code, label: `↑ Parent: ${parent.name} (${parent.code})` });
-    }
-    // Strip a " - X Division" suffix from the search text whether this event is the parent or a
-    // division — some parents have one too (e.g. FTCCMP1 is literally named "FIRST World Championship
-    // - Finals Division"), and searching on that full string only ever matches itself, since sibling
-    // divisions are named "... - Franklin Division" etc., not "... - Finals Division". A no-op when
-    // there's no " - " in the name at all (e.g. FPERR has none).
-    const searchText = eventInfo.name.split(' - ')[0];
-    const q = `query($season: Int!, $searchText: String!) { eventsSearch(season: $season, searchText: $searchText, limit: 50) { code name divisionCode } }`;
+    const q = `query($season: Int!, $code: String!) { eventByCode(season: $season, code: $code) { relatedEvents { code name divisionCode } } }`;
     const res = await fetch('https://api.ftcscout.org/graphql', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: q, variables: { season: parseInt(season, 10), searchText } })
+      body: JSON.stringify({ query: q, variables: { season: parseInt(season, 10), code: eventInfo.code } })
     });
     const json = await res.json();
-    const candidates = (json && json.data && json.data.eventsSearch) || [];
-    const related = candidates.filter(e => e.code !== eventInfo.code && (
-      eventInfo.divisionCode ? e.divisionCode === eventInfo.divisionCode : e.divisionCode === eventInfo.code
-    ));
-    related.forEach(e => {
+    const related = (json && json.data && json.data.eventByCode && json.data.eventByCode.relatedEvents) || [];
+    if (!related.length) return;
+    const buttons = related.map(e => {
+      // A null divisionCode among an event's relatedEvents can only be its parent (a division's own
+      // relatedEvents lists the parent alongside siblings; a parent's own relatedEvents lists only its
+      // children, which always have a divisionCode) — so this alone reliably tells parent from sibling.
+      if (e.divisionCode === null) return { code: e.code, label: `↑ Parent: ${e.name} (${e.code})` };
       const suffix = e.name.includes(' - ') ? e.name.split(' - ').slice(1).join(' - ') : e.name;
-      buttons.push({ code: e.code, label: `↳ ${suffix} (${e.code})` });
+      return { code: e.code, label: `↳ ${suffix} (${e.code})` };
     });
-    if (!buttons.length) return;
     container.innerHTML = buttons.map(b => `<button type="button" class="secondary" data-code="${b.code}">${b.label}</button>`).join('');
     container.style.display = 'flex';
     container.querySelectorAll('button').forEach(btn => {
@@ -751,6 +861,21 @@ function renderTable() {
   document.querySelector('th[data-key="oprCurrent"]').classList.toggle('oprActiveCol', mode === 'current');
   const derivedKeys = { strengthOpp: 1, strengthPartner: 1, sos: 1 };
   const sorted = [...results].sort((a, b) => {
+    // Playoff Finish gets its own comparator rather than folding into the generic numeric path below:
+    // its tiebreak (pick order within an alliance — Captain before 1st Pick before 2nd Pick) needs to
+    // stay fixed in that direction even when the column's own sort direction is flipped, unlike e.g.
+    // Predicted/Actual's win-then-loss tiebreak, which is fine flipping along with the rest.
+    if (sortState.key === 'finishRank') {
+      const aNull = a.finishRank == null, bNull = b.finishRank == null;
+      if (aNull || bNull) {
+        if (aNull && bNull) return 0;
+        return aNull ? 1 : -1; // no finish yet always sorts last, either direction
+      }
+      const rankCmp = a.finishRank - b.finishRank;
+      const primary = sortState.dir === 'desc' ? -rankCmp : rankCmp;
+      if (primary !== 0) return primary;
+      return a.finishRoleRank - b.finishRoleRank;
+    }
     let av, bv;
     if (derivedKeys[sortState.key]) {
       av = getRowStrength(a)[sortState.key];
@@ -795,9 +920,11 @@ function renderTable() {
   // the unlikely case no real color was captured at all. Full bracket (3+ alliances): gold-highlight
   // just the champion, and give the rest faint alternating banding so teammates visually group together
   // without implying rank through color (picking 6+ distinct, readable colors wasn't practical).
-  function finalsRowClassFor(fa) {
+  // groupCount is passed explicitly (rather than always reading finalsAllianceCount) so this same
+  // function can also band a normal event's rows when sorted by Playoff Finish — see below.
+  function finalsRowClassFor(fa, groupCount) {
     if (!fa) return '';
-    if (finalsAllianceCount === 2) return fa.color ? (fa.color === 'Red' ? 'finalsRedRow' : 'finalsBlueRow') : (fa.index === 0 ? 'finalsRedRow' : 'finalsBlueRow');
+    if (groupCount === 2) return fa.color ? (fa.color === 'Red' ? 'finalsRedRow' : 'finalsBlueRow') : (fa.index === 0 ? 'finalsRedRow' : 'finalsBlueRow');
     if (fa.isChampion) return 'finalsChampionRow';
     return fa.index % 2 === 0 ? 'finalsAllianceBandA' : 'finalsAllianceBandB';
   }
@@ -808,9 +935,14 @@ function renderTable() {
     const arKnown = (r.actualWins + r.actualLosses + r.actualTies) > 0;
     const expanded = expandedTeams.has(r.team);
     const arrow = expanded ? '▾' : '▸';
-    const finalsRowClass = finalsRowClassFor(r.finalsAlliance);
+    // A finals-only event is always banded (it has no other meaningful order). A normal event only
+    // gets banding/gold when actually sorted by Playoff Finish — any other sort scatters alliance-mates
+    // apart, so grouped color bands next to non-alliance-mates would look broken rather than meaningful.
+    const finalsRowClass = r.finalsAlliance
+      ? finalsRowClassFor(r.finalsAlliance, finalsAllianceCount)
+      : (sortState.key === 'finishRank' ? finalsRowClassFor(r.finishAlliance, playoffFinishGroupCount) : '');
     const mainRow = `<tr class="${finalsRowClass}">
-    <td class="num">${i + 1}</td>
+    <td class="num rowNum">${i + 1}${(sortState.key !== 'avgRp' && sortState.key !== 'rank' && r.rank !== null) ? ` (${r.rank})` : ''}</td>
     <td class="num col-rank">${r.rank === null ? '—' : r.rank}</td>
     <td class="num">${fmt(r.avgRp)}</td>
     <td class="teamCell">${favTeamSpan(r.team, `<a href="https://ftcscout.org/teams/${r.team}#${currentEventCode}" target="_blank" rel="noopener" title="Open ${r.team} on ftcscout.org"><strong>${r.team}</strong></a>`)}</td>
@@ -826,9 +958,10 @@ function renderTable() {
     <td class="num">${prKnown ? `${pr.w}-${pr.l}${pr.toss ? '-' + pr.toss : ''}` : '—'}</td>
     <td class="num">${arKnown ? `${r.actualWins}-${r.actualLosses}${r.actualTies ? '-' + r.actualTies : ''}` : '—'}</td>
     <td class="num teamCell" onclick="toggleExpand(${r.team})"><span class="expandArrow">${arrow}</span><strong>${r.scheduled ? `${r.played}/${r.scheduled}` : '—'}</strong></td>
+    <td>${r.finishLabel || '—'}</td>
   </tr>`;
     const detailRow = expanded
-      ? `<tr class="detailRow"><td colspan="16">${buildMatchTable(teamMatches[r.team], oprBySource[currentStrengthMode()])}${suppressAwardsInLog ? '' : buildAwardsHtml(teamAwards[r.team])}</td></tr>`
+      ? `<tr class="detailRow"><td colspan="17">${buildMatchTable(teamMatches[r.team], oprBySource[currentStrengthMode()])}${suppressAwardsInLog ? '' : buildAwardsHtml(teamAwards[r.team])}</td></tr>`
       : '';
     return mainRow + detailRow;
   }).join('');
@@ -873,7 +1006,11 @@ document.querySelectorAll('th.sortable').forEach(th => {
     if (sortState.key === key) {
       sortState.dir = sortState.dir === 'desc' ? 'asc' : 'desc';
     } else {
-      sortState = { key, dir: 'desc' };
+      // Every other column defaults to "desc" (highest first) on a fresh click, but for Playoff
+      // Finish a lower finishRank number is the better result (1 = Champion), so "asc" is what actually
+      // means "best first" here — defaulting to "desc" would show Eliminated alliances before the
+      // Champion, which is backwards for what this column means.
+      sortState = { key, dir: key === 'finishRank' ? 'asc' : 'desc' };
     }
     renderTable();
   });
@@ -1072,6 +1209,13 @@ document.getElementById('runBtn').addEventListener('click', async () => {
       });
     });
 
+    // Playoff finish (the "Finish" column) for a normal quals+playoffs event — empty for the
+    // finals-only-event case below, which builds its own equivalent (finalsAllianceByTeam) since it's
+    // deriving its whole roster from playoff matches rather than layering a finish on top of one.
+    const playoffFinish = computePlayoffFinish(matches, effectivePlayed);
+    const playoffFinishByTeam = playoffFinish.byTeam;
+    playoffFinishGroupCount = playoffFinish.groupCount;
+
     // What-if analysis via ?unplay= (see effectivePlayed() above, which is where this actually
     // takes effect): report which of the named match numbers are real quals matches at this event.
     if (excludeMatchNumbers.size) {
@@ -1211,11 +1355,17 @@ document.getElementById('runBtn').addEventListener('click', async () => {
       // under, so the "Red"/"Blue" row styling below can reflect what actually happened on the field —
       // not just who happened to finish first. Found via a real bug report: an alliance that played
       // Blue in every one of its matches, then won on the last one, was being shown as "Red" simply
-      // because it got sorted to index 0 (champion-first). Same-alliance color is usually stable across
-      // a series, but if it ever isn't, whichever match is chronologically latest wins, consistent with
-      // how championKey itself is decided below.
+      // because it got sorted to index 0 (champion-first). Ordering by match id rather than a played
+      // timestamp: ftcscout's match id increases strictly with schedule/play order within an event —
+      // verified against real data (FPERR: ids 20001/20002/20003 across a 3-game series that all share
+      // the same "series" value of 0, so id is what actually distinguishes them; a full double-elim
+      // bracket like FTCCMP1FRAN/AUSYQ2 also has ids climbing in lockstep with each match's real time).
+      // It's simpler and more robust than the three-field timestamp fallback used previously — id is
+      // always present, never gets touched by a later score correction the way updatedAt would, and a
+      // later playoff match's pairing usually can't even be determined until an earlier one finishes,
+      // so id order is causally tied to bracket progression, not just correlated with it.
       const groupColorByKey = {};
-      let championKey = null, latestTime = null;
+      let championKey = null, latestId = null;
       matches.forEach(m => {
         if (!m.hasBeenPlayed || !m.scores || !m.scores.red || !m.scores.blue) return;
         const rs = m.scores.red.totalPoints, bs = m.scores.blue.totalPoints;
@@ -1225,31 +1375,42 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         allianceWins[redKey] = allianceWins[redKey] || 0;
         allianceWins[blueKey] = allianceWins[blueKey] || 0;
         if (rs > bs) allianceWins[redKey]++; else if (bs > rs) allianceWins[blueKey]++;
-        const t = m.postResultTime || m.actualStartTime || m.updatedAt;
-        if (!groupColorByKey[redKey] || (t && t > groupColorByKey[redKey].time)) groupColorByKey[redKey] = { color: 'Red', time: t };
-        if (!groupColorByKey[blueKey] || (t && t > groupColorByKey[blueKey].time)) groupColorByKey[blueKey] = { color: 'Blue', time: t };
-        if (t && (!latestTime || t > latestTime)) {
-          latestTime = t;
+        const mid = m.id;
+        if (!groupColorByKey[redKey] || (mid != null && mid > groupColorByKey[redKey].id)) groupColorByKey[redKey] = { color: 'Red', id: mid };
+        if (!groupColorByKey[blueKey] || (mid != null && mid > groupColorByKey[blueKey].id)) groupColorByKey[blueKey] = { color: 'Blue', id: mid };
+        if (mid != null && (latestId == null || mid > latestId)) {
+          latestId = mid;
           championKey = rs > bs ? redKey : (bs > rs ? blueKey : null);
         }
       });
 
-      // Group teams by real alliance, order the groups (champion first, then by wins descending),
-      // and order each group's own members by pick order (Captain, then picks) — same result as
-      // before for a 2-alliance event, and now generalizes to a full bracket too.
+      // Group teams by real alliance, order the groups (champion first, then by elimination order —
+      // whose last real match had the highest match id — and order each group's own members by pick
+      // order (Captain, then picks). Elimination order, not win count, decides placement below the
+      // champion: double-elim bracket paths aren't symmetric, so an alliance that dropped into the
+      // lower bracket early can rack up MORE total wins reaching the final than the champion needed via
+      // the upper bracket — confirmed against a real 2025 event (AUSYQ2), where the finalist had 4 wins
+      // to the champion's 3. Win count is kept only as a last-resort tiebreak for the rare case of two
+      // alliances eliminated on the exact same match id (shouldn't happen — ids are per-match — but
+      // cheap insurance against a data quirk).
       const roleOrder = { Captain: 0, FirstPick: 1, SecondPick: 2, ThirdPick: 3 };
       const roleRank = t => (teamRole[t] && teamRole[t] in roleOrder) ? roleOrder[teamRole[t]] : 99;
       const groupsByKey = {};
       teamIds.forEach(t => {
         const teams = teamAllianceTeams[t] || [t];
         const key = allianceKey(teams);
-        if (!groupsByKey[key]) groupsByKey[key] = { key, teams: [...new Set(teams)], wins: allianceWins[key] || 0 };
+        if (!groupsByKey[key]) groupsByKey[key] = { key, teams: [...new Set(teams)], wins: allianceWins[key] || 0, lastId: (groupColorByKey[key] && groupColorByKey[key].id) ?? null };
       });
       const orderedGroups = Object.values(groupsByKey).sort((a, b) => {
         const aChamp = a.key === championKey, bChamp = b.key === championKey;
         if (aChamp !== bChamp) return aChamp ? -1 : 1;
-        if (b.wins !== a.wins) return b.wins - a.wins;
-        return a.teams[0] - b.teams[0]; // deterministic tiebreak
+        if (a.lastId !== b.lastId) {
+          if (a.lastId == null) return 1;
+          if (b.lastId == null) return -1;
+          return b.lastId - a.lastId;
+        }
+        if (b.wins !== a.wins) return b.wins - a.wins; // last-resort tiebreak
+        return a.teams[0] - b.teams[0]; // deterministic final tiebreak
       });
       finalsAllianceCount = orderedGroups.length;
       teamIds = [];
@@ -1258,7 +1419,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         g.teams.forEach(t => {
           teamIds.push(t);
           finalsRoleByTeam[t] = teamRole[t] || null;
-          finalsAllianceByTeam[t] = { index: gi, isChampion: g.key === championKey, color: (groupColorByKey[g.key] && groupColorByKey[g.key].color) || null };
+          finalsAllianceByTeam[t] = { index: gi, isChampion: g.key === championKey, color: (groupColorByKey[g.key] && groupColorByKey[g.key].color) || null, finishRank: gi + 1 };
         });
       });
 
@@ -1663,6 +1824,9 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     });
     const rankByTeam = {};
     rankOrder.forEach((t, i) => { rankByTeam[t] = i + 1; });
+    // Alliance 1/2/3... numbers for the Playoff Finish column — see computeAllianceNumbers above for
+    // how/why. finalsOnlyEvent has no Qual RP Rank of its own, so it's skipped there (stays empty).
+    const allianceNumberByIndex = finalsOnlyEvent ? {} : computeAllianceNumbers(playoffFinishByTeam, rankByTeam);
 
     // Used by the expanded match log to predict scores for matches that haven't been played yet,
     // under whichever OPR source the "Strength Calc OPRs" toggle currently has selected.
@@ -1671,6 +1835,42 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     results = teamIds.map(t => {
       const of_ = (t in oprFtcscout) ? round2(oprFtcscout[t]) : null;
       const se = strengthsEvent[t], sp = strengthsPrior[t], sc = strengthsCurrent[t];
+      // Playoff Finish (the sortable "Playoff Finish" column): the finals-only branch above already
+      // built its own equivalent (finalsAllianceByTeam/finalsRoleByTeam) while deriving its roster; a
+      // normal event uses playoffFinishByTeam instead, computed right after matches were fetched.
+      // Either way, a team that never made a playoff alliance (or hasn't yet, since playoffs aren't
+      // decided) ends up with finishRank: null, which the table always sorts to the bottom regardless
+      // of direction. finishRoleRank (Captain=0, FirstPick=1, ...) breaks ties within the same alliance
+      // by pick order, so Captain always sorts ahead of 1st Pick instead of falling back to whatever
+      // order they happened to be in before the Finish column was clicked.
+      const finishInfo = finalsOnlyEvent
+        ? (finalsAllianceByTeam[t] ? { finishRank: finalsAllianceByTeam[t].finishRank, role: finalsRoleByTeam[t] || null } : null)
+        : (playoffFinishByTeam[t] || null);
+      // Alliance N (captain-seed number, approximated — see computeAllianceNumbers) alongside the pick
+      // role, e.g. "Finalist (Alliance 3, 1st Pick)". Not available for a finals-only event (no Qual RP
+      // Rank there to seed by), so allianceNumberByIndex is empty and this quietly drops to just the
+      // role, same as before this feature existed.
+      const allianceNum = (!finalsOnlyEvent && playoffFinishByTeam[t]) ? allianceNumberByIndex[playoffFinishByTeam[t].index] : null;
+      const finishParen = [
+        allianceNum ? `Alliance ${allianceNum}` : null,
+        (finishInfo && finishInfo.role && pickRoleLabel[finishInfo.role]) ? pickRoleLabel[finishInfo.role] : null
+      ].filter(Boolean).join(', ');
+      // Champion/Finalist keep the named word plus the alliance/role parenthetical, e.g.
+      // "Champion (Alliance 2, Captain)". Every other eliminated alliance drops the "Eliminated"
+      // word entirely and just states the alliance/role, e.g. "Alliance 6, 1st Pick" — falls back
+      // to "Eliminated" only in the rare case neither an alliance number nor a role is available.
+      const finishLabel = finishInfo
+        ? (finishInfo.finishRank <= 2
+            ? finishLabelFor(finishInfo.finishRank) + (finishParen ? ` (${finishParen})` : '')
+            : (finishParen || 'Eliminated'))
+        : null;
+      const finishRoleRank = (finishInfo && finishInfo.role && finishInfo.role in starterRoleOrder) ? starterRoleOrder[finishInfo.role] : 9;
+      // Row banding/gold-highlight for a normal event's Playoff Finish sort (see renderTable) — the
+      // finals-only-event branch already has its own always-on equivalent via finalsAlliance below, so
+      // this is only populated (and only used) for the non-finals-only case.
+      const finishAlliance = (!finalsOnlyEvent && playoffFinishByTeam[t])
+        ? { index: playoffFinishByTeam[t].index, isChampion: playoffFinishByTeam[t].isChampion, color: playoffFinishByTeam[t].color }
+        : null;
       return {
         team: t,
         // RP Rank genuinely doesn't apply to a finals-only event (no RP was ever earned, and the
@@ -1697,7 +1897,11 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         scheduled: scheduledCount[t],
         played: playedCount[t],
         finalsAlliance: finalsAllianceByTeam[t] || null,
-        finalsRole: finalsRoleByTeam[t] || null
+        finalsRole: finalsRoleByTeam[t] || null,
+        finishRank: finishInfo ? finishInfo.finishRank : null,
+        finishRoleRank,
+        finishLabel,
+        finishAlliance
       };
     });
 
@@ -1741,7 +1945,8 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         'Actual losses': r.actualLosses,
         'Actual ties': r.actualTies,
         Scheduled: r.scheduled,
-        Played: r.played
+        Played: r.played,
+        Finish: r.finishLabel || ''
       })));
       XLSX.utils.book_append_sheet(wb, teamSheet, 'Teams');
 
