@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>FTC Event Strength of Schedule</title>
+<title>[beta] FTC Event Strength of Schedule</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- GoatCounter: privacy-friendly, cookieless analytics (page views, unique visitors, country).
      no_onload is set because the pageview is fired explicitly in the main script below (see the
@@ -162,7 +162,7 @@
 </head>
 <body>
 
-<h1>FTC Event Strength of Schedule</h1>
+<h1>[beta] FTC Event Strength of Schedule</h1>
 <div class="sub">Enter a season and event code (e.g. season 2025, code USGACMP). Pulls live match data from ftcscout.org and computes OPR for this event, alongside ftcscout's own published numbers, plus each team's strength of schedule. Works before matches are played too &mdash; once the schedule is posted, use Pre-event or Current OPR to forecast strength of schedule and predicted record ahead of time.</div>
 
 <div class="row">
@@ -961,7 +961,7 @@ function renderFallbackBracketHtml(data, teamNameByNumber, eventLabel, highlight
 <html>
 <head>
 <meta charset="utf-8">
-<title>Playoff Bracket — ${escapeHtml(eventLabel)}</title>
+<title>[beta] Playoff Bracket — ${escapeHtml(eventLabel)}</title>
 <style>
   /* Mirrors the main page's own --var / body.dark pattern (see its <style> block) so the bracket page
      can honor whichever Dark Mode state the main page was in when this was opened — see isDarkMode. */
@@ -1002,7 +1002,7 @@ function renderFallbackBracketHtml(data, teamNameByNumber, eventLabel, highlight
 </head>
 <body class="${isDarkMode ? 'dark' : ''}">
   <button type="button" class="returnBtn" onclick="if (window.opener &amp;&amp; !window.opener.closed) { window.opener.focus(); } window.close();">&larr; Return to results</button>
-  <h1>Playoff Bracket</h1>
+  <h1>[beta] Playoff Bracket</h1>
   <div class="subtitle">${escapeHtml(eventLabel)}</div>
   <div class="banner">This event's playoff results don't match a standard double-elimination bracket shape — an alliance kept playing after already reaching 2 losses, which a real double-elim format never allows once an alliance is eliminated. This is a known real format (e.g. round-robin playoffs, used at some FIRST Championship divisions), just not one this prototype knows how to draw as a bracket yet. Showing every playoff game in chronological order instead.</div>
   ${data.games.map(matchCard).join('')}
@@ -1136,7 +1136,7 @@ function renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByT
 <html>
 <head>
 <meta charset="utf-8">
-<title>Playoff Bracket — ${escapeHtml(eventLabel)}</title>
+<title>[beta] Playoff Bracket — ${escapeHtml(eventLabel)}</title>
 <style>
   /* Mirrors the main page's own --var / body.dark pattern (see its <style> block) so the bracket page
      can honor whichever Dark Mode state the main page was in when this was opened — see isDarkMode. */
@@ -1165,6 +1165,11 @@ function renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByT
   #bracketCanvas { display: inline-flex; align-items: center; gap: 40px; padding: 4px 2px; }
   #bracketCanvas.singleSeries { display: block; }
   #connectorSvg { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }
+  /* Sits above .node (z-index: 1) rather than below it like #connectorSvg — holds faint "ghost" copies
+     of connector lines clipped to just the stretches that pass behind a match card, so a line reads as
+     continuing underneath the card instead of just stopping dead at its edge. See coveredNodes/
+     drawFaintOverlay below. */
+  #connectorOverlaySvg { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; z-index: 2; }
   .lanesStack { display: flex; flex-direction: column; gap: 36px; }
   .lane { display: flex; align-items: center; gap: 14px; }
   .laneLabel { width: 64px; flex-shrink: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted2); text-align: right; line-height: 1.3; }
@@ -1199,12 +1204,13 @@ function renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByT
 </head>
 <body class="${isDarkMode ? 'dark' : ''}">
   <button type="button" class="returnBtn" onclick="if (window.opener &amp;&amp; !window.opener.closed) { window.opener.focus(); } window.close();">&larr; Return to results</button>
-  <h1>Playoff Bracket</h1>
+  <h1>[beta] Playoff Bracket</h1>
   <div class="subtitle">${escapeHtml(eventLabel)} — prototype view built from real match results (lane/round position and winners-vs-elimination grouping are derived from real win/loss counts, not an official FIRST bracket layout or seed numbers)</div>
   ${championHtml}
   <div id="bracketWrap">
     <svg id="connectorSvg"></svg>
     ${bodyHtml}
+    <svg id="connectorOverlaySvg"></svg>
   </div>
 <${''}script>
   (function() {
@@ -1214,7 +1220,8 @@ function renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByT
 
     // Shared by both the base lines and the highlight overlay, so a highlighted line sits at exactly
     // the same spot as the normal one underneath it — anchored at the specific red/blue row an alliance
-    // actually occupies in each card (not the card's overall center), same as before.
+    // actually occupies in each card (not the card's overall center), same as before. Returns the raw
+    // control points alongside the 'd' string so coveredNodes below can sample the same curve.
     function edgePath(wrap, wRect, e) {
       const fromEl = document.getElementById('node-' + e.from);
       const toEl = document.getElementById('node-' + e.to);
@@ -1225,26 +1232,101 @@ function renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByT
       const x1 = fr.right - wRect.left + wrap.scrollLeft, y1 = fr.top + fr.height / 2 - wRect.top + wrap.scrollTop;
       const x2 = tr.left - wRect.left + wrap.scrollLeft, y2 = tr.top + tr.height / 2 - wRect.top + wrap.scrollTop;
       const midX = (x1 + x2) / 2;
-      return 'M ' + x1 + ' ' + y1 + ' C ' + midX + ' ' + y1 + ', ' + midX + ' ' + y2 + ', ' + x2 + ' ' + y2;
+      const d = 'M ' + x1 + ' ' + y1 + ' C ' + midX + ' ' + y1 + ', ' + midX + ' ' + y2 + ', ' + x2 + ' ' + y2;
+      return { d: d, x1: x1, y1: y1, midX: midX, x2: x2, y2: y2 };
+    }
+
+    // Point at parameter t (0..1) along the same cubic bezier edgePath draws — used to sample the curve
+    // and find which cards it visually passes behind.
+    function bezierPointAt(x1, y1, cx1, cy1, cx2, cy2, x2, y2, t) {
+      const mt = 1 - t;
+      return [
+        mt * mt * mt * x1 + 3 * mt * mt * t * cx1 + 3 * mt * t * t * cx2 + t * t * t * x2,
+        mt * mt * mt * y1 + 3 * mt * mt * t * cy1 + 3 * mt * t * t * cy2 + t * t * t * y2
+      ];
+    }
+
+    // A card sitting on top of #connectorSvg (see .node's z-index in the stylesheet) fully hides
+    // whatever line geometry happens to run underneath it. This walks 40 points along the edge's curve
+    // and flags every OTHER card (never the edge's own two endpoints) any of those points lands inside,
+    // so draw()/drawHighlightEdges() can paint a faint "ghost" of the line over just those cards — the
+    // connector then reads as continuing underneath instead of stopping dead at a box edge.
+    function coveredNodes(wrap, wRect, e, x1, y1, midX, x2, y2) {
+      const fromId = 'node-' + e.from, toId = 'node-' + e.to;
+      const candidates = Array.from(document.querySelectorAll('.node')).filter(n => n.id !== fromId && n.id !== toId);
+      if (!candidates.length) return [];
+      const rects = candidates.map(n => {
+        const r = n.getBoundingClientRect();
+        return { node: n, x1: r.left - wRect.left + wrap.scrollLeft, y1: r.top - wRect.top + wrap.scrollTop, x2: r.right - wRect.left + wrap.scrollLeft, y2: r.bottom - wRect.top + wrap.scrollTop };
+      });
+      const covered = new Set();
+      const samples = 40;
+      for (let i = 0; i <= samples; i++) {
+        const [px, py] = bezierPointAt(x1, y1, midX, y1, midX, y2, x2, y2, i / samples);
+        for (const r of rects) {
+          if (covered.has(r.node)) continue;
+          if (px >= r.x1 && px <= r.x2 && py >= r.y1 && py <= r.y2) covered.add(r.node);
+        }
+      }
+      return Array.from(covered);
+    }
+
+    // Draws the faint "ghost" copy of one edge's line, clipped to only the card(s) it passes behind
+    // (coveredNodes) — a no-op when the line never dips under anything. idPrefix keeps base-line clips
+    // and highlight-line clips namespaced separately so redrawing one never collides with or orphans the
+    // other's <clipPath> defs.
+    function drawFaintOverlay(overlaySvg, wrap, wRect, e, p, color, strokeWidth, idPrefix, isHighlight) {
+      const nodes = coveredNodes(wrap, wRect, e, p.x1, p.y1, p.midX, p.x2, p.y2);
+      if (!nodes.length) return;
+      const svgNS = 'http://www.w3.org/2000/svg';
+      let defs = overlaySvg.querySelector('defs');
+      if (!defs) { defs = document.createElementNS(svgNS, 'defs'); overlaySvg.appendChild(defs); }
+      const clipId = idPrefix + '-' + e.from + '-' + e.to + '-' + e.color;
+      const clipPath = document.createElementNS(svgNS, 'clipPath');
+      clipPath.setAttribute('id', clipId);
+      if (isHighlight) clipPath.setAttribute('data-highlight-edge', '1');
+      nodes.forEach(node => {
+        const r = node.getBoundingClientRect();
+        const rect = document.createElementNS(svgNS, 'rect');
+        rect.setAttribute('x', r.left - wRect.left + wrap.scrollLeft);
+        rect.setAttribute('y', r.top - wRect.top + wrap.scrollTop);
+        rect.setAttribute('width', r.width);
+        rect.setAttribute('height', r.height);
+        clipPath.appendChild(rect);
+      });
+      defs.appendChild(clipPath);
+      const path = document.createElementNS(svgNS, 'path');
+      path.setAttribute('d', p.d);
+      path.setAttribute('stroke', color);
+      path.setAttribute('stroke-width', strokeWidth);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('opacity', '0.35');
+      path.setAttribute('clip-path', 'url(#' + clipId + ')');
+      if (isHighlight) path.setAttribute('data-highlight-edge', '1');
+      overlaySvg.appendChild(path);
     }
 
     function draw() {
       const wrap = document.getElementById('bracketWrap');
       const svg = document.getElementById('connectorSvg');
+      const overlaySvg = document.getElementById('connectorOverlaySvg');
       svg.innerHTML = '';
+      overlaySvg.innerHTML = '';
       svg.setAttribute('width', wrap.scrollWidth);
       svg.setAttribute('height', wrap.scrollHeight);
+      overlaySvg.setAttribute('width', wrap.scrollWidth);
+      overlaySvg.setAttribute('height', wrap.scrollHeight);
       const wRect = wrap.getBoundingClientRect();
       edges.forEach(e => {
-        const d = edgePath(wrap, wRect, e);
-        if (!d) return;
+        const p = edgePath(wrap, wRect, e);
+        if (!p) return;
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', d);
+        path.setAttribute('d', p.d);
         path.setAttribute('stroke', lineColor[e.color] || '#bbb');
         path.setAttribute('stroke-width', '2');
         path.setAttribute('fill', 'none');
-        path.setAttribute('opacity', '0.75');
         svg.appendChild(path);
+        drawFaintOverlay(overlaySvg, wrap, wRect, e, p, lineColor[e.color] || '#bbb', '2', 'clip-b', false);
       });
       drawHighlightEdges();
     }
@@ -1253,23 +1335,27 @@ function renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByT
     // line in that alliance's own red/blue color — tried a gold-with-colored-outline treatment first,
     // but it read as odd/busy, so this instead just leans on the same red/blue the base lines already
     // use, made thick enough to stand out clearly. No-op with nothing drawn when no alliance is
-    // currently selected.
+    // currently selected. Also redraws that same thick line's own faint behind-cards overlay, so a
+    // highlighted run still reads as continuous under a box exactly like the base lines do.
     function drawHighlightEdges() {
       const wrap = document.getElementById('bracketWrap');
       const svg = document.getElementById('connectorSvg');
+      const overlaySvg = document.getElementById('connectorOverlaySvg');
       svg.querySelectorAll('[data-highlight-edge]').forEach(el => el.remove());
+      overlaySvg.querySelectorAll('[data-highlight-edge]').forEach(el => el.remove());
       if (!selectedKey) return;
       const wRect = wrap.getBoundingClientRect();
       edges.filter(e => e.allianceKey === selectedKey).forEach(e => {
-        const d = edgePath(wrap, wRect, e);
-        if (!d) return;
+        const p = edgePath(wrap, wRect, e);
+        if (!p) return;
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', d);
+        path.setAttribute('d', p.d);
         path.setAttribute('stroke', lineColor[e.color] || '#bbb');
         path.setAttribute('stroke-width', '6');
         path.setAttribute('fill', 'none');
         path.setAttribute('data-highlight-edge', '1');
         svg.appendChild(path);
+        drawFaintOverlay(overlaySvg, wrap, wRect, e, p, lineColor[e.color] || '#bbb', '6', 'clip-h', true);
       });
     }
 
