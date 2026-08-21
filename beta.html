@@ -993,6 +993,11 @@ function renderFallbackBracketHtml(data, teamNameByNumber, eventLabel, highlight
   .allianceSeed { color: var(--muted); font-weight: 700; margin-right: 3px; }
   .returnBtn { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 14px; padding: 6px 12px; font-size: 13px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--returnbtn-bg); color: var(--text); cursor: pointer; }
   .returnBtn:hover { background: var(--returnbtn-hover); }
+  /* Touch-only substitute for the native title="..." tooltip (see isTouchDevice below) — reuses --text/
+     --bg inverted so it reads as a dark chip in light mode and a light chip in dark mode, without
+     needing its own separate color variables. */
+  #mobileTooltip { position: fixed; z-index: 100; max-width: 260px; background: var(--text); color: var(--bg); font-size: 12px; line-height: 1.4; padding: 6px 10px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.25); opacity: 0; pointer-events: none; transition: opacity .15s; }
+  #mobileTooltip.visible { opacity: 1; }
 </style>
 </head>
 <body class="${isDarkMode ? 'dark' : ''}">
@@ -1001,6 +1006,35 @@ function renderFallbackBracketHtml(data, teamNameByNumber, eventLabel, highlight
   <div class="subtitle">${escapeHtml(eventLabel)}</div>
   <div class="banner">This event's playoff results don't match a standard double-elimination bracket shape — an alliance kept playing after already reaching 2 losses, which a real double-elim format never allows once an alliance is eliminated. This is a known real format (e.g. round-robin playoffs, used at some FIRST Championship divisions), just not one this prototype knows how to draw as a bracket yet. Showing every playoff game in chronological order instead.</div>
   ${data.games.map(matchCard).join('')}
+<${''}script>
+  (function() {
+    // This fallback (round-robin) view has no click-to-highlight feature, so the only thing tapping an
+    // alliance box needs to do here is show its full-info tooltip — see renderBracketHtml's own copy of
+    // this for the fuller explanation of why touch devices need this at all.
+    const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    if (!isTouchDevice) return;
+    let mobileTooltipTimer = null;
+    function showMobileTooltip(el, text) {
+      let tip = document.getElementById('mobileTooltip');
+      if (!tip) {
+        tip = document.createElement('div');
+        tip.id = 'mobileTooltip';
+        document.body.appendChild(tip);
+      }
+      tip.textContent = text;
+      const r = el.getBoundingClientRect();
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - 268));
+      tip.style.left = left + 'px';
+      tip.style.top = (r.bottom + 6) + 'px';
+      tip.classList.add('visible');
+      clearTimeout(mobileTooltipTimer);
+      mobileTooltipTimer = setTimeout(() => { tip.classList.remove('visible'); }, 2500);
+    }
+    document.querySelectorAll('.side[title]').forEach(el => {
+      el.addEventListener('click', () => showMobileTooltip(el, el.getAttribute('title')));
+    });
+  })();
+<${''}/script>
 </body>
 </html>`;
 }
@@ -1156,6 +1190,11 @@ function renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByT
   .allianceSeed { color: var(--muted); font-weight: 700; margin-right: 3px; }
   .returnBtn { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 14px; padding: 6px 12px; font-size: 13px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--returnbtn-bg); color: var(--text); cursor: pointer; }
   .returnBtn:hover { background: var(--returnbtn-hover); }
+  /* Touch-only substitute for the native title="..." tooltip (see isTouchDevice below) — reuses --text/
+     --bg inverted so it reads as a dark chip in light mode and a light chip in dark mode, without
+     needing its own separate color variables. */
+  #mobileTooltip { position: fixed; z-index: 100; max-width: 260px; background: var(--text); color: var(--bg); font-size: 12px; line-height: 1.4; padding: 6px 10px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.25); opacity: 0; pointer-events: none; transition: opacity .15s; }
+  #mobileTooltip.visible { opacity: 1; }
 </style>
 </head>
 <body class="${isDarkMode ? 'dark' : ''}">
@@ -1250,8 +1289,38 @@ function renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByT
       drawHighlightEdges();
     }
 
+    // Touch devices (phones/tablets) have no hover state, so the native title="..." tooltip on each
+    // alliance box (see allianceTooltip in renderBracketHtml/renderFallbackBracketHtml) essentially
+    // never shows up there — there's no long-press or tap gesture that reveals it. This detects touch
+    // capability and, only on those devices, also pops up a small custom tooltip briefly on tap,
+    // alongside the normal highlight-the-run behavior (not instead of it).
+    const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    let mobileTooltipTimer = null;
+    function showMobileTooltip(el, text) {
+      let tip = document.getElementById('mobileTooltip');
+      if (!tip) {
+        tip = document.createElement('div');
+        tip.id = 'mobileTooltip';
+        document.body.appendChild(tip);
+      }
+      tip.textContent = text;
+      const r = el.getBoundingClientRect();
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - 268));
+      tip.style.left = left + 'px';
+      tip.style.top = (r.bottom + 6) + 'px';
+      tip.classList.add('visible');
+      clearTimeout(mobileTooltipTimer);
+      mobileTooltipTimer = setTimeout(() => { tip.classList.remove('visible'); }, 2500);
+    }
+
     document.querySelectorAll('[data-key]').forEach(el => {
-      el.addEventListener('click', () => selectAlliance(el.getAttribute('data-key')));
+      el.addEventListener('click', () => {
+        selectAlliance(el.getAttribute('data-key'));
+        if (isTouchDevice) {
+          const text = el.getAttribute('title');
+          if (text) showMobileTooltip(el, text);
+        }
+      });
     });
 
     window.addEventListener('load', draw);
