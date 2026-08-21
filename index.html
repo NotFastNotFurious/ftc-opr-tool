@@ -82,6 +82,23 @@
   .opts2 .grp { display: flex; gap: 12px; align-items: center; }
   .opts2 .grp-label { font-size: 12px; color: var(--note-text); margin-right: 2px; }
   .optsSep { color: var(--opts-sep); font-size: 13px; }
+  /* EXPERIMENTAL (v20 branch): the event code input doubles as a search box (code, event name, or
+     team number — see scheduleSearch below), with this panel showing whichever kind of results that
+     input currently implies. */
+  .eventCodeWrap { position: relative; }
+  #eventSearchPanel { position: absolute; top: calc(100% + 4px); left: 0; z-index: 50; width: 300px; max-height: 320px; overflow-y: auto; background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.16); display: none; }
+  #eventSearchPanel.open { display: block; }
+  .esp-section-label { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--note-text); padding: 8px 10px 4px; }
+  .esp-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; font-size: 13px; border-top: 1px solid var(--border); }
+  .esp-row:first-of-type { border-top: none; }
+  .esp-row:hover { background: var(--opr-active-bg); }
+  .esp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .esp-code { color: var(--note-text); font-size: 12px; flex-shrink: 0; margin-left: 8px; }
+  .esp-empty { padding: 10px; font-size: 12px; color: var(--note-text); }
+  .esp-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 10px 10px; }
+  .esp-chip { font-size: 12px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; color: var(--label-text); background: none; }
+  .esp-chip:hover { border-color: var(--border-strong); }
+  .esp-chip-season { color: var(--note-text); margin-left: 4px; }
   .advanced { margin: 0 0 20px; border: 1px solid var(--opts2-border); border-radius: 6px; background: var(--opts2-bg); }
   .advanced summary { cursor: pointer; padding: 10px 12px; font-size: 13px; font-weight: 600; color: var(--label-text); list-style: none; }
   .advanced summary::-webkit-details-marker { display: none; }
@@ -114,6 +131,11 @@
      the expand-row click target, which the Team name cell also provides) are untouched, just visually
      hidden — toggle this off to bring it back. */
   .col-played { display: none; }
+  /* Finish column is only ever hidden conditionally, not permanently like col-played/col-rank above —
+     #resultsTable gets the noFinish class in run() whenever no row actually has a finish result to show
+     (blank until playoffs are decided, or the event has no playoffs at all), so there's no empty column
+     of dashes sitting there for a quals-only or not-yet-decided event. */
+  #resultsTable.noFinish .col-finish { display: none; }
   /* Highlights whichever OPR column (Pre/Event/All) matches the currently-selected Strength Calc radio. */
   .oprActiveCol { background: var(--opr-active-bg); }
   #downloadRow { margin-top: 16px; display: none; }
@@ -163,7 +185,7 @@
 <body>
 
 <h1>FTC Event Strength of Schedule</h1>
-<div class="sub">Enter a season and event code (e.g. season 2025, code USGACMP). Pulls live match data from ftcscout.org and computes OPR for this event, alongside ftcscout's own published numbers, plus each team's strength of schedule. Works before matches are played too &mdash; once the schedule is posted, use Pre-event or Current OPR to forecast strength of schedule and predicted record ahead of time.</div>
+<div class="sub">Enter a season, then search by event code, event name, or team number (e.g. season 2025, USGACMP, "Georgia Championship", or team 6047). Pulls live match data from ftcscout.org and computes OPR for this event, alongside ftcscout's own published numbers, plus each team's strength of schedule. Works before matches are played too &mdash; once the schedule is posted, use Pre-event or Current OPR to forecast strength of schedule and predicted record ahead of time.</div>
 
 <div class="row">
   <div>
@@ -171,8 +193,11 @@
     <input type="number" id="season" value="2025">
   </div>
   <div>
-    <label for="eventCode">Event code</label>
-    <input type="text" id="eventCode" placeholder="USGACMP" value="USGACMP">
+    <label for="eventCode">Event search</label>
+    <div class="eventCodeWrap">
+      <input type="text" id="eventCode" placeholder="Code, name, or team #" value="USGACMP" autocomplete="off">
+      <div id="eventSearchPanel"></div>
+    </div>
   </div>
   <button id="runBtn">Fetch and compute</button>
   <span id="spinner" class="spinner"></span>
@@ -203,7 +228,7 @@
 <details id="advancedPanel" class="advanced">
   <summary>Advanced</summary>
   <div class="advancedBody">
-    <p class="note">These map directly to this page's URL parameters. Fill them in, then <strong>Apply</strong> (reloads with your changes) or <strong>Copy link</strong> to save or share this exact setup for next time — no account or cookies needed, the link itself is the saved setting. The link also remembers your current Season and Event code above, so it reopens to exactly the event you were looking at.</p>
+    <p class="note">These map directly to this page's URL parameters. Fill them in, then <strong>Apply</strong> (reloads with your changes) or <strong>Copy link</strong> to save or share this exact setup for next time — no account or cookies needed, the link itself is the saved setting. The link also remembers your current Season and Event search above, so it reopens to exactly the event you were looking at.</p>
     <div class="advRow">
       <label for="debugMatchLimit">Debug: simulate only first N qual matches played</label>
       <input type="number" id="debugMatchLimit" class="debugField" min="0" placeholder="all played">
@@ -262,7 +287,7 @@
       <th class="num sortable" data-key="predictedWins" title="Predicted win-loss-toss-up record from the full schedule and the selected OPR source; margins under 10 points count as a toss-up, not a call">Predicted <span class="arrow"></span></th>
       <th class="num sortable" data-key="actualWins" title="Actual win-loss-tie record so far">Actual <span class="arrow"></span></th>
       <th class="num sortable col-played" data-key="played" title="Matches played out of matches scheduled (e.g. 4/5) — click to expand this team's match log, predictions, and awards">Played <span class="arrow"></span></th>
-      <th class="sortable" data-key="finishRank" title="Playoff finish: Winner/Finalist are named explicitly; every other alliance that made the playoffs just shows its alliance number and pick role (e.g. Alliance 6, 1st Pick) rather than a guessed round name, since the exact round depends on the bracket shape for this many alliances. The order behind the label is still exact, though — it's each alliance's real elimination order (and pick order within an alliance), not win count. Alliance N is the traditional captain-seed number. For a standard 2/4/6/8-alliance double-elimination bracket, it's read directly off the real playoff match structure (which color each alliance played in the early rounds), matching the official seeding. When that's not possible (bracket still early, non-double-elim format, or a finals-only combined event), it falls back to an estimate from each captain's Qual RP Rank, flagged '(est.)'. Blank for teams that never made an alliance, or before playoffs are decided">Finish <span class="arrow"></span></th>
+      <th class="sortable col-finish" data-key="finishRank" title="Playoff finish. Winner/Finalist are named; other alliances show their alliance number and pick role (e.g. Alliance 6, 1st Pick). Alliance number is read from the real bracket when possible, otherwise estimated from Qual RP Rank and flagged '(est.)'. Blank until playoffs are decided">Finish <span class="arrow"></span></th>
     </tr>
   </thead>
   <tbody id="resultsBody"></tbody>
@@ -1705,7 +1730,7 @@ function renderTable() {
     <td class="num">${prKnown ? `${pr.w}-${pr.l}${pr.toss ? '-' + pr.toss : ''}` : '—'}</td>
     <td class="num">${arKnown ? `${r.actualWins}-${r.actualLosses}${r.actualTies ? '-' + r.actualTies : ''}` : '—'}</td>
     <td class="num teamCell col-played" onclick="toggleExpand(${r.team})"><span class="expandArrow">${arrow}</span><strong>${r.scheduled ? `${r.played}/${r.scheduled}` : '—'}</strong></td>
-    <td>${r.finishLabel || '—'}</td>
+    <td class="col-finish">${r.finishLabel || '—'}</td>
   </tr>`;
     const detailRow = expanded
       ? `<tr class="detailRow"><td colspan="17">${buildMatchTable(teamMatches[r.team], oprBySource[currentStrengthMode()])}${suppressAwardsInLog ? '' : buildAwardsHtml(teamAwards[r.team])}</td></tr>`
@@ -1871,6 +1896,160 @@ document.getElementById('bracketBtn').addEventListener('click', () => {
   w.document.close();
 });
 
+// EXPERIMENTAL (v20 branch): turns the Event code input into a combined search box, since requiring
+// the exact official code was the main thing standing between someone and looking up an event. Three
+// modes, chosen purely from what's currently typed:
+//   - empty/just-focused -> recently viewed events (persisted client-side; see RECENT_EVENTS_KEY)
+//   - all digits -> treated as a team number, listing that team's events for the selected Season
+//   - anything else -> a free-text name search, plus a pinned "Direct match" if the text happens to
+//     already be a real event code (so pasting a known code still works exactly like before)
+// Selecting any result fills Season + Event code and immediately clicks Fetch and compute, the same
+// two-step "set fields, then click" pattern the existing related-events buttons use.
+const RECENT_EVENTS_KEY = 'ftcOprSosRecentEvents';
+
+function getRecentEvents() {
+  try { return JSON.parse(localStorage.getItem(RECENT_EVENTS_KEY) || '[]'); }
+  catch (e) { return []; }
+}
+
+// Most-recent-first, deduped by season+code, capped at 8 — localStorage can be unavailable (private
+// browsing, storage disabled), in which case this just silently no-ops and the recent list stays empty
+// rather than breaking the fetch that triggered it.
+function addRecentEvent(entry) {
+  try {
+    const list = getRecentEvents().filter(r => !(r.season === entry.season && r.code === entry.code));
+    list.unshift(entry);
+    localStorage.setItem(RECENT_EVENTS_KEY, JSON.stringify(list.slice(0, 8)));
+  } catch (e) { /* ignore — recent list just won't persist this run */ }
+}
+
+// Fetches multiple events' names in a single GraphQL round-trip (one aliased eventByCode field per
+// code) rather than N separate REST calls — used after the team-events REST lookup below, whose
+// response includes eventCode but not the event's display name.
+async function fetchEventNames(season, codes) {
+  if (!codes.length) return {};
+  const fields = codes.map((c, i) => `e${i}: eventByCode(season: ${season}, code: ${JSON.stringify(c)}) { code name }`).join(' ');
+  const res = await fetch('https://api.ftcscout.org/graphql', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: `query { ${fields} }` })
+  });
+  const json = await res.json();
+  const byCode = {};
+  Object.values(json.data || {}).forEach(ev => { if (ev) byCode[ev.code] = ev.name; });
+  return byCode;
+}
+
+async function searchTeamEvents(season, teamNumber) {
+  const events = await fetchJson(`https://api.ftcscout.org/rest/v1/teams/${teamNumber}/events/${season}`);
+  const codes = events.map(e => e.eventCode);
+  const names = await fetchEventNames(season, codes);
+  return events.map(e => ({ season, code: e.eventCode, name: names[e.eventCode] || e.eventCode }));
+}
+
+async function fetchEventByCodeDirect(season, code) {
+  const q = `query($season:Int!,$code:String!){ eventByCode(season:$season, code:$code){ code name } }`;
+  const res = await fetch('https://api.ftcscout.org/graphql', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, variables: { season: Number(season), code } })
+  });
+  const json = await res.json();
+  return (json.data && json.data.eventByCode) || null;
+}
+
+// eventsSearch's own searchText matching turned out to be quite loose when tested directly against
+// the API (e.g. searching an actual event CODE as text pulled back a long list of mostly-unrelated
+// "...CMP" events from other countries) — so this adds a client-side relevance gate on top: only keep
+// a result if the query's own words actually appear in that event's name.
+async function searchEventsByName(season, text) {
+  const q = `query($season:Int!,$t:String!){ eventsSearch(season:$season, searchText:$t, limit:12){ code name } }`;
+  const res = await fetch('https://api.ftcscout.org/graphql', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, variables: { season: Number(season), t: text } })
+  });
+  const json = await res.json();
+  const raw = (json.data && json.data.eventsSearch) || [];
+  const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  return raw.filter(e => words.some(w => e.name.toLowerCase().includes(w))).map(e => ({ season, code: e.code, name: e.name }));
+}
+
+const eventCodeInput = document.getElementById('eventCode');
+const eventSearchPanel = document.getElementById('eventSearchPanel');
+
+function openSearchPanel() { eventSearchPanel.classList.add('open'); }
+function closeSearchPanel() { eventSearchPanel.classList.remove('open'); }
+
+function renderRecentChips() {
+  const recent = getRecentEvents();
+  if (!recent.length) { eventSearchPanel.innerHTML = '<div class="esp-empty">No recent events yet.</div>'; return; }
+  eventSearchPanel.innerHTML = '<div class="esp-section-label">Recent</div><div class="esp-chips">' +
+    recent.map(r => `<button type="button" class="esp-chip" data-season="${r.season}" data-code="${escapeHtml(r.code)}">${escapeHtml(r.name)}<span class="esp-chip-season">${r.season}</span></button>`).join('') +
+    '</div>';
+}
+
+function renderRowList(sectionLabel, items, emptyText) {
+  const rows = items.map(it => `<div class="esp-row" data-season="${it.season}" data-code="${escapeHtml(it.code)}"><span class="esp-name">${escapeHtml(it.name)}</span><span class="esp-code">${escapeHtml(it.code)}</span></div>`).join('');
+  eventSearchPanel.innerHTML = `<div class="esp-section-label">${escapeHtml(sectionLabel)}</div>` + (rows || `<div class="esp-empty">${escapeHtml(emptyText)}</div>`);
+}
+
+function renderNameSearch(direct, results) {
+  let html = '';
+  if (direct) {
+    html += '<div class="esp-section-label">Direct match</div>' +
+      `<div class="esp-row" style="background:var(--opr-active-bg)" data-season="${direct.season}" data-code="${escapeHtml(direct.code)}"><span class="esp-name">${escapeHtml(direct.name)}</span><span class="esp-code">${escapeHtml(direct.code)} &rarr;</span></div>`;
+  }
+  const filtered = results.filter(r => !direct || r.code !== direct.code);
+  html += '<div class="esp-section-label">Matching events</div>' +
+    (filtered.length ? filtered.map(it => `<div class="esp-row" data-season="${it.season}" data-code="${escapeHtml(it.code)}"><span class="esp-name">${escapeHtml(it.name)}</span><span class="esp-code">${escapeHtml(it.code)}</span></div>`).join('')
+      : '<div class="esp-empty">No name matches.</div>');
+  eventSearchPanel.innerHTML = html;
+}
+
+// Guards against a slower, older search response landing after a newer one — e.g. typing quickly
+// past a first search before it resolves.
+let searchToken = 0;
+let searchDebounce = null;
+
+function scheduleSearch() {
+  clearTimeout(searchDebounce);
+  const raw = eventCodeInput.value.trim();
+  const season = document.getElementById('season').value.trim();
+  openSearchPanel();
+  if (!raw) { renderRecentChips(); return; }
+  if (!season) { eventSearchPanel.innerHTML = '<div class="esp-empty">Enter a season first.</div>'; return; }
+  eventSearchPanel.innerHTML = '<div class="esp-empty">Searching&hellip;</div>';
+  const myToken = ++searchToken;
+  searchDebounce = setTimeout(async () => {
+    try {
+      if (/^\d+$/.test(raw)) {
+        const items = await searchTeamEvents(season, raw);
+        if (myToken !== searchToken) return;
+        renderRowList(`Team ${raw} · ${season} events`, items, 'No events found for this team and season.');
+      } else {
+        const [direct, results] = await Promise.all([
+          fetchEventByCodeDirect(season, raw.toUpperCase()),
+          searchEventsByName(season, raw)
+        ]);
+        if (myToken !== searchToken) return;
+        renderNameSearch(direct ? { season, code: direct.code, name: direct.name } : null, results);
+      }
+    } catch (err) {
+      if (myToken !== searchToken) return;
+      eventSearchPanel.innerHTML = `<div class="esp-empty">Search failed: ${escapeHtml(err.message)}</div>`;
+    }
+  }, 300);
+}
+
+eventCodeInput.addEventListener('input', scheduleSearch);
+eventCodeInput.addEventListener('focus', scheduleSearch);
+eventCodeInput.addEventListener('keydown', e => { if (e.key === 'Escape') closeSearchPanel(); });
+document.addEventListener('click', e => { if (!e.target.closest('.eventCodeWrap')) closeSearchPanel(); });
+eventSearchPanel.addEventListener('click', e => {
+  const row = e.target.closest('[data-code]');
+  if (!row) return;
+  eventCodeInput.value = row.getAttribute('data-code');
+  const rowSeason = row.getAttribute('data-season');
+  if (rowSeason) document.getElementById('season').value = rowSeason;
+  closeSearchPanel();
+  document.getElementById('runBtn').click();
+});
+
 document.getElementById('runBtn').addEventListener('click', async () => {
   clearLog();
   // The log panel starts collapsed on every load, but opens up for a fetch that's actually running
@@ -1965,6 +2144,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
       const eventNameEl = document.getElementById('eventName');
       eventNameEl.textContent = `${eventInfo.name} (${code}, ${season})`;
       eventNameEl.style.display = 'block';
+      addRecentEvent({ season: Number(season), code, name: eventInfo.name });
       showRelatedEvents(season, eventInfo); // fire-and-forget: a button that never appears (or shows up
                                              // a moment later) shouldn't hold up or fail the main fetch
     }
@@ -2708,6 +2888,11 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         finishAlliance
       };
     });
+
+    // Hides the whole Finish column (see #resultsTable.noFinish in the stylesheet) rather than leaving
+    // it sitting there as a column of nothing but dashes — covers both a quals-only event (no playoff
+    // matches at all) and a normal event whose playoffs just haven't been decided yet.
+    document.getElementById('resultsTable').classList.toggle('noFinish', !results.some(r => r.finishLabel));
 
     sortState = { key: 'rank', dir: 'asc' };
     document.getElementById('strengthPrior').checked = true;
