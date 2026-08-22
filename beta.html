@@ -1892,7 +1892,7 @@ document.getElementById('advCopyBtn').addEventListener('click', async () => {
 document.body.classList.toggle('wire', wireOn);
 
 // EXPERIMENTAL (v20 branch): builds the bracket page on demand from lastPlayoffMatchesForBracket
-// (populated in run(), see its declaration up top) and opens it in a new tab via document.write —
+// (populated in run(), see its declaration up top) and opens it in a new tab via a data: URL —
 // no server, no separate file, consistent with this tool's single-file/no-backend approach elsewhere.
 document.getElementById('bracketBtn').addEventListener('click', () => {
   const data = buildBracketData(lastPlayoffMatchesForBracket);
@@ -1911,8 +1911,18 @@ document.getElementById('bracketBtn').addEventListener('click', () => {
   const html = renderBracketHtml(data, teamNameByNumber, eventLabel, highlightColorByTeam, lastOfficialSeedByIndex, lastPlayoffFinishByTeam, isDarkMode);
   const w = window.open('', '_blank');
   if (!w) { log('Could not open a new tab for the bracket — check your browser\'s popup blocker.'); return; }
-  w.document.write(html);
-  w.document.close();
+  // A plain document.write() into this still-about:blank tab renders the bracket fine, but Chrome
+  // won't pick up its <link rel="icon"> favicon that way — favicon fetching is tied to a real
+  // navigation, and a tab that's never actually navigated (just written into) doesn't get one.
+  // A data: URL navigation would be a real page load too, but ad blockers (AdBlock Plus, etc.)
+  // commonly flag top-level navigation to a data: URI as a malvertising pattern and silently block
+  // it. A blob: URL is a real navigation as well — so the favicon still gets picked up — without
+  // matching that filter, since it's the same ordinary mechanism sites use for "download this file"
+  // links and isn't treated as suspicious.
+  // (window.opener back on the main page still works fine across this — it's set at window.open()
+  // time and isn't affected by what the popup navigates to afterward.)
+  const blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  w.location.href = blobUrl;
 });
 
 // EXPERIMENTAL (v20 branch): turns the Event code input into a combined search box, since requiring
