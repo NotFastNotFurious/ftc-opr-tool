@@ -385,6 +385,8 @@ let autoRunOnLoad = false; // set below if ?season= or ?event= was in the URL �
   // the rest of the Advanced panel, just for the two fields that already had their own visible inputs.
   // If either was actually given, this was clearly a deliberate bookmark rather than a bare visit to
   // the page, so it also auto-runs Fetch and compute — see autoRunOnLoad at the bottom of the script.
+  // (A third option, ?team=, lands on that team's event list instead of a specific event — handled
+  // separately, further down near the rest of the event-search code, since it needs scheduleSearch.)
   if (params.get('season')) { document.getElementById('season').value = params.get('season'); autoRunOnLoad = true; }
   if (params.get('event')) { document.getElementById('eventCode').value = params.get('event'); autoRunOnLoad = true; }
   const debugRaw = params.get('debug');
@@ -504,6 +506,13 @@ const highlightColors = new Map(); // teamNumber -> color string
 // explicit highlight/color setting for 30564 always wins over this default.
 if (wireOn && !highlightColors.has(30564)) {
   highlightColors.set(30564, DEFAULT_HIGHLIGHT_COLOR);
+}
+// ?team=<number> (see the search-box code further down) is itself a statement of "this is the team
+// I'm looking for" — so it gets the same free-highlight treatment as wire=Y's 30564 above, unless the
+// URL already gave that team its own explicit ?highlight= entry.
+const teamParam = parseInt((urlParams.get('team') || '').trim(), 10);
+if (Number.isFinite(teamParam) && !highlightColors.has(teamParam)) {
+  highlightColors.set(teamParam, defaultHighlightColor);
 }
 function favTeamSpan(team, html) {
   return highlightColors.has(team) ? `<span style="color:${highlightColors.get(team)}">${html}</span>` : html;
@@ -2049,6 +2058,15 @@ eventSearchPanel.addEventListener('click', e => {
   closeSearchPanel();
   document.getElementById('runBtn').click();
 });
+
+// ?team=<number> — same "bookmarked/shared link" idea as ?season=/?event= above, but for landing
+// straight on a team's list of events for the selected season, via the same search flow as typing a
+// team number into the box by hand (see scheduleSearch). Only fires when ?event= wasn't also given —
+// a direct event code link should win and go straight to results, not get overridden by a team list.
+if (urlParams.get('team') && !urlParams.get('event') && document.getElementById('season').value) {
+  eventCodeInput.value = urlParams.get('team');
+  scheduleSearch();
+}
 
 document.getElementById('runBtn').addEventListener('click', async () => {
   clearLog();
